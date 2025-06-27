@@ -1,4 +1,7 @@
 [deps]
+ArnoldiMethod = "ec485272-7323-5ecc-a04f-4719b315124d"
+Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
 QGas = "157a641c-7539-4439-85a5-392db9878408"
 QMSim = "6ab62e54-2a03-41bb-86b9-7d3ce2b5ed8b"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+Term = "22787eb5-b846-44ae-b979-8e399b8463ab"

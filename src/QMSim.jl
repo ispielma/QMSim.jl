@@ -5,8 +5,20 @@ A toolkit for solving quantum mechanics problems, with a focus on those describe
 """
 module QMSim
 
-include("MatrixBuilders.jl"); using .MatrixBuilders
+include("Helpers.jl"); using .Helpers
+export DimensionWithSpace
 
-export MatrixBuilders
+# Todo: move DimensionWithSpace to a new helpers.jl
+
+include("AbstractTypes.jl"); using .AbstractTypes
+export AbstractRule, AbstractRuleBuilder, AbstractMatrixWithRules # types
+export get_array, build_rules!, set_defaults!, dim # methods
+
+include("MatrixBuilders.jl"); using .MatrixBuilders
+export RelativeRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
+export add_rule!, build!, generate_builders!, generate_builders, add_matrix!
+
+include("MatrixSolvers.jl"); using .MatrixSolvers
+export QMSolver, eigensystem!
 
 end

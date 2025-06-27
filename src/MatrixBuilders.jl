@@ -15,74 +15,28 @@ module MatrixBuilders
 #
 # where the rule is that for these CamelCase types I am combining the first letter of each word.
 #
-using LinearAlgebra, SparseArrays
+using ..AbstractTypes
+import ..AbstractTypes: build_rules!, add_rule!, generate_builders!, generate_builders, add_matrix! # To be overloaded
+
+using ..Helpers: DimensionWithSpace, base_typeof
+
 import QGas.NumericalTools.ArrayDimensions as AD
 
-import Base: zeros
 
-export DimensionWithSpace, RelativeRule, AbsoluteRule, ExplicitRule
-export MatrixWithRules, add_rule!, build_matrix!
-export MatrixWithDimensions
-export finalize!
+export DimensionWithSpace, RelativeRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
+export add_rule!, build!, generate_builders!, generate_builders, add_matrix!
 
-
-# Zeros methods for currently supported matrix types.
-zeros(::Type{Matrix}, ::Type{T}, args...) where T = zeros(T, args...)
-zeros(::Type{Matrix{T}}, ::Type{T}, args...) where T = zeros(T, args...)
-
-zeros(::Type{SparseMatrixCSC}, ::Type{T}, args...) where T = spzeros(T, args...)
-zeros(::Type{SparseMatrixCSC{T}}, ::Type{T}, args...) where T = spzeros(T, args...)
-
-"""
-    `DimensionWithSpace`
-
-A concrete type of `AbstractDimension` that has a `spatial` flag.
-"""
-Base.@kwdef mutable struct DimensionWithSpace <: AD.AbstractDimension
-    x0::Float64 = 0.0
-    dx::Float64 = 1.0
-    npnts::Int64 = 0
-    unit::String = ""
-    symmetric::Bool = false
-    periodic::Bool = false
-    spatial::Bool = true
-end
 
 #=
-########  ##     ## ##       ########    ######## ##    ## ########  ########  ######
-##     ## ##     ## ##       ##             ##     ##  ##  ##     ## ##       ##    ##
-##     ## ##     ## ##       ##             ##      ####   ##     ## ##       ##
-########  ##     ## ##       ######         ##       ##    ########  ######    ######
-##   ##   ##     ## ##       ##             ##       ##    ##        ##             ##
-##    ##  ##     ## ##       ##             ##       ##    ##        ##       ##    ##
-##     ##  #######  ######## ########       ##       ##    ##        ########  ######
+########  ##     ## ##       ########  ######
+##     ## ##     ## ##       ##       ##    ##
+##     ## ##     ## ##       ##       ##
+########  ##     ## ##       ######    ######
+##   ##   ##     ## ##       ##             ##
+##    ##  ##     ## ##       ##       ##    ##
+##     ##  #######  ######## ########  ######
 =#
-"""
-    `AbstractRule(args...; kwargs...)` → complex number (or whatever type of matrix we are looking at)
-    `AbstractRuleBuilder` 
 
-Top-level type for all rule objects.
-
-concrete type of `AbstractRuleBuilder` will be callable with arguments:
-    * mat :: AbstractMatrix matrix to add to
-    * index_to_values :: Vector{Vector{Float64}} mapping from linear array indices to coordinate dimensions
-
-Each concrete type of `AbstractRuleBuilder` is expected to provide an outer constructor with the following signature:
-    ```
-    AbstractRuleBuilder(
-        rules::Vector{ConcereteRuleType},
-        adims::AD.Dimensions,
-        index_to_coords::Vector{Vector{Int}})
-    ```
-
-"""
-abstract type AbstractRule end
-abstract type AbstractRuleBuilder end
-
-# Introduce traits that are needed to connect the rule type with the associated matrix builder 
-matrix_builder(::Type{T}) where {T<:AbstractRule} = error("No builder defined for rule‐type $T")
-
-(rb::AbstractRuleBuilder)(mat, index_to_values; kwargs...) = mat
 
 #=
 ########  ######## ##          ###    ######## #### ##     ## ########
@@ -109,6 +63,8 @@ struct RelativeRule{F} <: AbstractRule
     func::F
     Δ::Vector{Int}
 end
+RelativeRule(::Type{M}, func, Δ) where M = RelativeRule(func, Δ)
+
 (a::RelativeRule)(x0::Vector, x1::Vector; kwargs...) = a.func(x0, x1; kwargs...)
 
 struct RelativeRuleBuilder <: AbstractRuleBuilder
@@ -135,9 +91,6 @@ function RelativeRuleBuilder(rules::Vector{RelativeRule}, adims::AD.Dimensions, 
     return rb
 end
 
-"""
-   
-"""
 function (rb::RelativeRuleBuilder)(mat, index_to_values; kwargs...)
 
     for ((i,j), rule) in rb.actions
@@ -166,6 +119,7 @@ A rule and builder for functions that return a complete matrix
 struct AbsoluteRule{F} <: AbstractRule
     func::F
 end
+AbsoluteRule(::Type{M}, func) where M = AbsoluteRule(func)
 (a::AbsoluteRule)(kwargs...) = a.func(;kwargs...)
 
 struct AbsoluteRuleBuilder <: AbstractRuleBuilder
@@ -173,7 +127,7 @@ struct AbsoluteRuleBuilder <: AbstractRuleBuilder
 end
 matrix_builder(::Type{AbsoluteRule}) = AbsoluteRuleBuilder(args...; kwargs...)
 
-AbsoluteRuleBuilder(rules, args...; kwargs...) = AbsoluteRuleBuilder(rules)
+AbsoluteRuleBuilder(actions, args...; kwargs...) = AbsoluteRuleBuilder(actions)
 
 function (rb::AbsoluteRuleBuilder)(mat, args...; kwargs...) 
     mat += mapreduce(r -> r.func(;kwargs...), +, rb.actions)
@@ -199,17 +153,31 @@ A rule and builder for for hard-coded matrices
 struct ExplicitRule{M<:AbstractMatrix} <: AbstractRule
     matrix::M
 end
+function ExplicitRule(::Type{M}, mat) where M
+
+    try
+        mat = convert(M, mat)
+    catch
+        throw(ArgumentError("Unable to convert passed matrix type $(eltype(matrix)) to $(T) "))
+    end
+
+    mat = M(mat)
+
+    ExplicitRule(mat)
+end
+
 (a::ExplicitRule)() = a.matrix
 
 struct ExplicitRuleBuilder <: AbstractRuleBuilder
     actions::Vector{ExplicitRule}
 end
-matrix_builder(::Type{ExplicitRule}) = ExplicitRuleBuilder(args...; kwargs...)
+matrix_builder(::Type{ExplicitRule}, args...; kwargs...) = ExplicitRuleBuilder(args...; kwargs...)
 
-ExplicitRuleBuilder(rules, args...; kwargs...) = ExplicitRuleBuilder(rules)
+ExplicitRuleBuilder(actions, args...; kwargs...) = ExplicitRuleBuilder(actions)
 
-function (rb::ExplicitRuleBuilder)(mat, args...; kwargs...) 
-    mat += reduce(+, rb.actions)
+function (rb::ExplicitRuleBuilder)(mat, args...; kwargs...)
+    mat += mapreduce(r -> r.matrix, +, rb.actions)
+
     return mat
 end
 
@@ -230,15 +198,16 @@ This a container type that contains rules used to build matrices.
 
 rules: Each rule is a dictionary, and each rule specifies an individual matrix element.
 
-* `rules`: rules to be applied given relative coordinates.  
+* `adims`: physical dimensions of the system
+* `rules`: rules to be applied given relative coordinates
+* `builders`: efficiently build matrices
+* `matrix`: Most recent matrix
 * `cache_kwargs::Bool`: whether to cache the kwargs of the rules
 * `options`: Dictionary of options
-* `matrix`: Most recent matrix
 
 Private fields (prefixed `_`) should only be touched by helpers.
 """
-
-mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}}
+mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
     adims::AD.Dimensions # Spatial / internal dimensions of system
     rules::Vector{AbstractRule}
     builders::Vector{AbstractRuleBuilder}
@@ -252,19 +221,20 @@ mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}}
     _kwargs_defaults::Dict{Symbol, Any} # Default kwargs
     _matrix_cached::Bool # whether the matrix is currently cached
 end
-function MatrixWithRules(M::Type, adims::AD.Dimensions; cache_kwargs=true, option=Dict())
-    
-    # define the mapping from matrix index to (i,j,k, ...) coordinates
-    index_to_coords = AD.index_to_coords(Vector, adims)
-
-    # define the mapping from linear array indices scaled values
-    index_to_values = AD.index_to_values(Vector, adims)
+function MatrixWithRules(
+        ::Type{M}, 
+        adims::AD.Dimensions,
+        index_to_coords,
+        index_to_values; 
+        cache_kwargs::Bool=true, 
+        options=Dict{Symbol, Any}()
+    ) where M
 
     MatrixWithRules{eltype(M), M}(
         adims,
-        [],
-        [],
-        M(undef, 0, 0), 
+        AbstractRule[],
+        AbstractRuleBuilder[],
+        zeros(M, eltype(M), length(adims), length(adims) ), 
         cache_kwargs, 
         options,
         index_to_coords,
@@ -275,76 +245,43 @@ function MatrixWithRules(M::Type, adims::AD.Dimensions; cache_kwargs=true, optio
     )
 end
 
-"""
-    dim(mwr::MatrixWithRules)
+function MatrixWithRules(::Type{M}, adims::AD.Dimensions; kwargs...) where M
+    
+    # define the mapping from matrix index to (i,j,k, ...) coordinates
+    index_to_coords = AD.index_to_coords(Vector, adims)
 
-Returns the vector space dimension, so internally matrices will be dim x dim in size
-"""
-dim(mwr::MatrixWithDimensions) = length(mwr.adims)
+    # define the mapping from linear array indices scaled values
+    index_to_values = AD.index_to_values(Vector, adims)
 
-"""
-    `add_rule!(mwr::MatrixWithRules, rule::AbstractRule)`
-
-Adds a rule of any type to `mwr`.  Methods exist that directly take the arguments for each rule type.
-"""
-add_rule!(mwr::MatrixWithRules, rule::AbstractRule) = mwr.rules = vcat(mwr.rules, rule)
-
-"""
-    `add_rule!(mwr::MatrixWithRules, f::Function Δ::AbstractVector{Int})`
-
-This method assumes that we are adding an `RelativeRule` type which when called returns a matrix element for a specific transition.
-"""
-add_rule!(mwr::MatrixWithRules, f::Function, Δ::AbstractVector{Int}) = add_rule!(mwr, RelativeRule(f, Δ))
-
-"""
-    `add_rule!(mwr::MatrixWithRules, f::Function)`
-
-This method assumes that we are adding an `AbsoluteRule` type which when called returns a matrix
-"""
-add_rule!(mwr::MatrixWithRules, f::Function) = add_rule!(mwr, AbsoluteRule(f))
-
-"""
-    `add_rule!(mwr::MatrixWithRules{T,M}, matrix::AbstractMatrix) where {T,M}`
-
-This method assumes that we are adding an `ExplicitRule` type which when called returns a matrix
-"""
-function add_rule!(mwr::MatrixWithRules{T, M}, matrix::AbstractMatrix) where {T, M}
-
-    try
-        matrix = convert(M, matrix)
-    catch
-        throw(ArgumentError("Unable to convert passed matrix type $(eltype(matrix)) to $(T) "))
-    end
-
-    matrix = M(matrix)
-
-    add_rule!(mwr, ExplicitRule(matrix))
+    MatrixWithRules(M, adims, index_to_coords, index_to_values; kwargs...)
 end
 
 """
-    generate_builders(mwr::MatrixWithRules)::MatrixBuilder
+    generate_builders(mwr::MatrixWithRules)::Vector{AbstractRuleBuilder}()
     generate_builders!(mwr::MatrixWithRules)::MatrixWithRules
 
 Methods to construct MatrixBuilder that directly uses the MatrixWithRules
 """
-function generate_builders(mwr::MatrixWithRules, dims)
+function generate_builders(mwr::MatrixWithRules)
 
     # Get all rule types
-    rule_types = Set([typeof(rule) for rule in mwr.rules])
+    rule_types = Set(base_typeof(rule) for rule in mwr.rules)
 
-    builders = AbsoluteRuleBuilder[]
+    builders =  Vector{AbstractRuleBuilder}()
 
     for T in rule_types
 
-        rules = [rule for rule in mwr.rules if rule isa T]
+        # I do need to declare the type here to make sure that we don't
+        # get the specialized type in the case of a length 1 vector.
+        rules::Vector{T} = [rule for rule in mwr.rules if rule isa T]
 
-        push!(builders, matrix_builder(T, dims, mwr.index_to_coords))
+        push!(builders, matrix_builder(T, rules, mwr.adims, mwr._index_to_coords))
     end 
 
     return builders
 end
-function generate_builders!(mwr::MatrixWithRules, dims)
-    mwr.builders = generate_builders(mwr, dims)
+function generate_builders!(mwr::MatrixWithRules)
+    mwr.builders = generate_builders(mwr)
     return mwr
 end
 
@@ -353,9 +290,11 @@ end
 
 * `kwargs`: kwargs to be passed to rules 
 """
-function build(mwr::MatrixWithRules; kwargs...)
+function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
 
     use_cached = mwr.cache_kwargs && mwr._matrix_cached
+
+
 
     if use_cached
         for (k, cached_kwarg) in mwr._kwargs
@@ -376,8 +315,9 @@ function build(mwr::MatrixWithRules; kwargs...)
     if !use_cached
         mat = zeros(M, T, dim(mwr), dim(mwr) ) 
 
-        for builder! in mwr.builders
-            builder!(mat, mwr.index_to_values; kwargs...)
+        for builder in mwr.builders
+
+            mat = builder(mat, mwr._index_to_values; kwargs...)
         end
 
     else
@@ -388,154 +328,77 @@ function build(mwr::MatrixWithRules; kwargs...)
 end
 function build!(mwr::MatrixWithRules; kwargs...)
     mwr.matrix = build(mwr; kwargs...)
+
     mwr._matrix_cached = true
 
     return mwr
 end
 
-
-#=
-##     ##    ###    ######## ########  #### ##     ##    ##      ## #### ######## ##     ##    ########  ##     ## #### ##       ########  ######## ########
-###   ###   ## ##      ##    ##     ##  ##   ##   ##     ##  ##  ##  ##     ##    ##     ##    ##     ## ##     ##  ##  ##       ##     ## ##       ##     ##
-#### ####  ##   ##     ##    ##     ##  ##    ## ##      ##  ##  ##  ##     ##    ##     ##    ##     ## ##     ##  ##  ##       ##     ## ##       ##     ##
-## ### ## ##     ##    ##    ########   ##     ###       ##  ##  ##  ##     ##    #########    ########  ##     ##  ##  ##       ##     ## ######   ########
-##     ## #########    ##    ##   ##    ##    ## ##      ##  ##  ##  ##     ##    ##     ##    ##     ## ##     ##  ##  ##       ##     ## ##       ##   ##
-##     ## ##     ##    ##    ##    ##   ##   ##   ##     ##  ##  ##  ##     ##    ##     ##    ##     ## ##     ##  ##  ##       ##     ## ##       ##    ##
-##     ## ##     ##    ##    ##     ## #### ##     ##     ###  ###  ####    ##    ##     ##    ########   #######  #### ######## ########  ######## ##     ##
-=#
 """
-    AbstractMatrixWithDimensions
+    MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatrixWithRules
 
-An abstract interface for “builder” types that
-
-  * expose `build_rules!(mwd; …)`  
-  * expose `prep_matrix!(mwd; …)`  
-  * expose `finalize!(mwd; …)`  
-
-and store their rule state in a `mwr` field.
+A collection of MatrixWithRules each labeled by a symbol that share the same coordinate system.
 """
-abstract type AbstractMatrixWithDimensions end
+mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
+    adims      :: AD.Dimensions
+    matrices   :: Dict{Symbol,MatrixWithRules{T,M}}
+    matrix     :: M
+    options    :: Dict{Symbol,Any}         # global options (rarely needed)
 
-"""
-    set_defaults!(mwd::AbstractMatrixWithDimensions, args...; kwargs...)
+    # one set of maps is enough for the whole family
+    _index_to_coords :: Vector{Vector{Int}}
+    _index_to_values :: Vector{Vector{Float64}}
+end
+function MatricesWithRules(::Type{M},
+                           adims::AD.Dimensions;
+                           cache_kwargs::Bool = true,
+                           options = Dict{Symbol,Any}()) where M
 
-Set default parameters where the matrix will be evaluated.
-"""
-set_defaults!(mwd::AbstractMatrixWithDimensions, args...; kwargs...) = mwd
+    return MatricesWithRules{eltype(M),M}(
+        adims,
+        Dict{Symbol,MatrixWithRules{eltype(M),M}}(),
+        zeros(M, eltype(M), length(adims), length(adims) ),
+        options,
+        AD.index_to_coords(Vector, adims),
+        AD.index_to_values(Vector, adims)
+        )
+end
 
-"""
-    error_check(mwd::AbstractMatrixWithDimensions, args...; kwargs...) = false
+add_rule!(mwrs::MatricesWithRules, name::Symbol, args...; kwargs...) = add_rule!(mwrs.matrices[name], args...; kwargs...)
 
-Implement error checking.
-"""
-error_check(mwd::AbstractMatrixWithDimensions, args...; kwargs...) = false
-
-"""
-     build_rules!(mwd::AbstractMatrixWithDimensions, args...; empty=false, kwargs...) 
-
-Build the rules required to create the Hamiltonian.  This is interface is expected
-to be implemented for each concrete type.
-"""
-function build_rules!(mwd::AbstractMatrixWithDimensions, args...; kwargs...)
-
-    return mwd
+function generate_builders!(mwrs::MatricesWithRules)
+    for (_, mwr) in mwrs.matrices
+        generate_builders!(mwr)
+    end
+    return mwrs
 end
 
 """
-    prep_matrix!(mwd::AbstractMatrixWithDimensions, args...; kwargs...)
+    build!(mwrs::MatricesWithRules; names=nothing, kwargs...)
 
-Initializes the matrix to be solved.  This step is based on the idea
-that each time that matrices are needed we update all of the values
-in them that need changing, and the size never changes.
-
-Must be defined for each concrete type
+method of build! for concrete type MatricesWithRules.  Adds a keyword argument `name` that
+optionally specifies which of the matrices to build.
 """
-function prep_matrix!(mwd::AbstractMatrixWithDimensions, args...; kwargs...) 
-    throw(MethodError(prep_matrix!, (mwd,))) 
-end
+function build!(mwrs::MatricesWithRules; names=nothing, kwargs...)
 
-"""
-    finalize!(mwd::AbstractMatrixWithDimensions, args...; kwargs...)
-
-Finalize the setup.  This does not need to be defined for each concrete type (but it can)
-"""
-function finalize!(mwd::AbstractMatrixWithDimensions, args...; kwargs...)
-
-    # Error check using child class provided error checker
-    error_check(mwd, args...; kwargs...)
-    
-    # Define all the rules
-    build_rules!(mwd, args...; kwargs...)
-    
-    prep_matrix!(mwd, args...; kwargs...)
-
-    return mwd
-end
-
-"""
-    MatrixWithDimensions{T, M<:AbstractMatrix{T}}
-
-Encodes the information regarding the dimensions the system is defined in.
-This could be spatial dimensions, or some internal structure.
-
-* `T` : element type of matrix
-* `M` : type of matrix
-
-* `_index_to_coords`: vector mapping indices to coordinates
-* `_coords_to_index`: vector mapping coordinates to indices
-"""
-mutable struct MatrixWithDimensions{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithDimensions
-    mwr::MatrixWithRules{T, M}
-    num_states::Int
-end
-MatrixWithDimensions(M, adims::AD.Dimensions) = MatrixWithDimensions{eltype(M), M}(
-    adims, 
-    MatrixWithRules(M),
-    0,
-    Vector{Int}[], 
-    Vector{Float64}[]
-)
-
-#
-# Add interface methods
-#
-
-"""
-    dim(mwd::MatrixWithDimensions)
-
-Returns the vector space dimension, so internally matrices will be dim x dim in size
-"""
-dim(mwd::MatrixWithDimensions) = dim(mwd.mwr)
-
-"""
-    `add_rule!(mwd::MatrixWithDimensions, args...; kwargs...)`
-
-Adds a rule to `mwd`.  This is dispatched via the `add_rule!` method for `mwd.mwr`
-"""
-add_rule!(mwd::MatrixWithDimensions, args...; kwargs...) = add_rule!(mwd.mwr, args...; kwargs...)
-
-"""
-    prep_matrix!(mwd::MatrixWithDimensions; precompute_index=true)
-
-Method specialized for MatrixWithDimensions
-"""
-function prep_matrix!(mwd::MatrixWithDimensions)
-    
-    # If we have not set the number of states, set it to the full system size
-    if mwd.num_states == 0
-        mwd.num_states = dim(mwd)
+    if names === nothing
+        names = keys(mwrs.matrices)
     end
 
-    # Initialize the build rules
-    return generate_builders!(mwd)
+    for name in names
+        mwr = mwrs.matrices[name]
+        build!(mwr; kwargs...)
+    end
+
+    mwrs.matrix = mapreduce(m -> m.matrix, +, values(mwrs.matrices))
+
+    return mwrs
 end
 
-generate_builders(mwd::MatrixWithDimensions) = generate_builders!(mwd.mwr, mwd.adims, mwd._index_to_coords)
-
-function generate_builders!(mwd::MatrixWithDimensions)
-    mwd.mwr.builders = generate_builders(mwd)
-    return mwd
+# Add new new functionality
+function add_matrix!(mwrs::MatricesWithRules{T, M}, name::Symbol; kwargs...) where {T, M}
+    mwrs.matrices[name] = MatrixWithRules(M, mwrs.adims, mwrs._index_to_coords,  mwrs._index_to_values; kwargs...)
+    return mwrs
 end
-
 
 end # MatrixBuilders
