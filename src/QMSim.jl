@@ -12,10 +12,10 @@ export DimensionWithSpace
 
 include("AbstractTypes.jl"); using .AbstractTypes
 export AbstractRule, AbstractRuleBuilder, AbstractMatrixWithRules # types
-export get_array, build_rules!, set_defaults!, dim # methods
+export get_array, build_rules!, set_default_kwargs!, dim # methods
 
 include("MatrixBuilders.jl"); using .MatrixBuilders
-export RelativeRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
+export RelativeRule, ElementRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
 export add_rule!, build!, generate_builders!, generate_builders, add_matrix!
 
 include("MatrixSolvers.jl"); using .MatrixSolvers

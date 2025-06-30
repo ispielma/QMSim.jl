@@ -10,7 +10,7 @@ using LinearAlgebra, SparseArrays, Arpack
 import QGas.NumericalTools.ArrayDimensions as AD
 
 # For overloading
-import ..AbstractTypes: get_array, build_rules!, add_rule!, error_check!, generate_builders!, generate_builders
+import ..AbstractTypes: get_array, build_rules!, add_rule!, error_check, generate_builders!, generate_builders
 import ..MatrixBuilders: add_matrix!, build!
 
 using ..AbstractTypes
@@ -30,15 +30,23 @@ Subtype of AbstractMatrixWithRules that is specifically for solving quantum mech
 
 """
 mutable struct QMSolver{T, M<:AbstractMatrix{T}} <: AbstractMatrixSolver{T,M}
-    mwrs::MatricesWithRules{T,M}
-    eigenvalues::Vector{T}
+    adims       ::AD.Dimensions
+    mwrs        ::MatricesWithRules{T,M}
+    eigenvalues ::Vector{T}
     eigenvectors::Matrix{T}
-    num_states::Int
-    ranker::Union{AbstractMatrix{T},Nothing}
-    wrap::Union{Type, Function}
+    num_states  ::Int
+    ranker      ::Union{AbstractMatrix{T},Nothing} # TODO: change this to a symbol key in the reference matrices?
+    wrap        ::Union{Type, Function}
+
+    # one set of maps is enough for the whole family
+    _index_to_coords :: Vector{Vector{Int}}
+    _index_to_values :: Vector{Vector{Float64}}
 end
-function QMSolver(::Type{M}, adims::AD.Dimensions, args...; num_states=nothing, wrap=identity, ranker=nothing, kwargs...) where {T, M<:AbstractMatrix{T}}   M
-    mwrs = MatricesWithRules(M, adims, args...; kwargs...)
+function QMSolver(::Type{M}, adims::AD.Dimensions, args...; num_states=nothing, wrap=identity, ranker=nothing, kwargs...) where {T, M<:AbstractMatrix{T}}
+    index_to_coords = AD.index_to_coords(Vector, adims),
+    index_to_values = AD.index_to_values(Vector, adims)
+    
+    mwrs = MatricesWithRules(M, adims, index_to_coords, index_to_values, args...; kwargs...)
 
     num_states = num_states === nothing ? dim(mwrs) : Int(num_states)
     # mwrs_reference = MatricesWithRules(args...; kwargs...)

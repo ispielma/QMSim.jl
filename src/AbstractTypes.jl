@@ -8,13 +8,14 @@ these abstract types
 module AbstractTypes
 
 # Will be adding methods to these functions
-import Base: size, getindex, setindex!, length, iterate, eltype, isdone
+import Base: size, getindex, setindex!, length, iterate, eltype, isdone, ndims
 import SparseArrays: issparse
 
 import QGas.NumericalTools.ArrayDimensions as AD
 
 export AbstractRule, AbstractRuleBuilder, AbstractMatrixWithRules
-export build_rules!, error_check!, dim, set_defaults!, add_rule!, generate_builders!, generate_builders, get_array
+export get_matrix, set_matrix!
+export build_rules!, error_check, set_default_kwargs!, add_rule!, generate_builders!, generate_builders, build!, build
 
 export AbstractMatrixSolver
 
@@ -106,26 +107,41 @@ Abstract MatrixWithRules type, used to define the interface.  The default interf
 
 * `rules` :: Vector{AbstractRule}
 * `matrix` :: AbstractMatrix
+* `adims` :: AD.Dimensions
+* `_default_kwargs` :: Dict{Symbol, Any}
+
 """
 abstract type AbstractMatrixWithRules{T, M} <: AbstractMatrix{T} end
-get_array(mwr::AbstractMatrixWithRules) = mwr.matrix
-_get_rules(mwr::AbstractMatrixWithRules) = mwr.rules
-_set_rules!(mwr::AbstractMatrixWithRules, rules) = mwr.rules = rules
+
+get_matrix(mwr::AbstractMatrixWithRules) = mwr.matrix
+set_matrix!(mwr::AbstractMatrixWithRules, matrix::AbstractMatrix) = mwr.matrix = matrix
+
+get_rules(mwr::AbstractMatrixWithRules) = mwr.rules
+set_rules!(mwr::AbstractMatrixWithRules, rules) = mwr.rules = rules
+
+get_dimensions(mwr::AbstractMatrixWithRules) = mwr.adims
+set_dimensions!(mwr::AbstractMatrixWithRules, adims) = mwr.adims = adims
+
+get_default_kwargs(mwr::AbstractMatrixWithRules) = mwr._default_kwargs
+set_default_kwargs!(mwr::AbstractMatrixWithRules, kwargs) = mwr._default_kwargs = kwargs
+set_default_kwargs!(mwr::AbstractMatrixWithRules, args...; kwargs...) = set_default_kwargs!(mwr, args..., kwargs)
 
 #
 # Implement array interface
 #
 
-size(mwr::AbstractMatrixWithRules) = size(get_array(mwr))
-getindex(mwr::AbstractMatrixWithRules, args...) = getindex(get_array(mwr), args...)
-setindex!(mwr::AbstractMatrixWithRules, args...) = setindex!(get_array(mwr), args...)
-length(mwr::AbstractMatrixWithRules) = length(get_array(mwr))
+size(mwr::AbstractMatrixWithRules) = size(get_matrix(mwr))
+getindex(mwr::AbstractMatrixWithRules, args...) = getindex(get_matrix(mwr), args...)
+setindex!(mwr::AbstractMatrixWithRules, args...) = setindex!(get_matrix(mwr), args...)
+length(mwr::AbstractMatrixWithRules) = length(get_matrix(mwr)) 
 
-iterate(mwr::AbstractMatrixWithRules, args...) = iterate(get_array(mwr), args...)
-eltype(mwr::AbstractMatrixWithRules) = eltype(get_array(mwr))
-isdone(mwr::AbstractMatrixWithRules, args...) = Base.isdone(get_array(mwr), args...)
+ndims(mwr::AbstractMatrixWithRules) = ndims(get_matrix(mwr)) 
 
-issparse(mwr::AbstractMatrixWithRules) = issparse(get_array(mwr))
+iterate(mwr::AbstractMatrixWithRules, args...) = iterate(get_matrix(mwr), args...)
+eltype(mwr::AbstractMatrixWithRules) = eltype(get_matrix(mwr))
+isdone(mwr::AbstractMatrixWithRules, args...) = Base.isdone(get_matrix(mwr), args...)
+
+issparse(mwr::AbstractMatrixWithRules) = issparse(get_matrix(mwr))
 
 #
 # New methods for AbstractMatrixWithRules
@@ -139,32 +155,27 @@ build the efficient build-tables based on the rules encoded in the matrix
 build_rules!(mwr::AbstractMatrixWithRules) = mwr
 
 """
-    error_check!(mwr::AbstractMatrixWithRules)
+    error_check(mwr::AbstractMatrixWithRules)
 
 check for errors
 """
-error_check!(mwr::AbstractMatrixWithRules) = mwr
-
-"""
-    dim(mwr::MatrixWithRules)
-
-Returns the vector space dimension, so internally matrices will be dim x dim in size
-"""
-dim(mwr::AbstractMatrixWithRules) = length(mwr.adims)
-
-"""
-    set_defaults!(mwd::AbstractMatrixWithRules, args...; kwargs...)
-
-Set default parameters where the matrix will be evaluated.
-"""
-set_defaults!(mwr::AbstractMatrixWithRules; kwargs...) = mwr._kwargs_defaults = kwargs
+function error_check(mwr::AbstractMatrixWithRules) 
+    
+    # The only possible error at this point is a dimension mismatch between the matrix and the dimensions
+    len_mwr = length(mwr)
+    len_dims = length(get_dimensions(mwr))
+    if len_mwr != len_dims
+        throw(DimensionMismatch("Length of stored matrix $(len_mwr) does not match length of dimensions $(len_dims)"))
+    end
+    
+end
 
 """
     `add_rule!(mwr::AbstractMatrixWithRules, rule::AbstractRule)`
 
 Adds a rule of any type to `mwr`.  Methods exist that directly take the arguments for each rule type.
 """
-add_rule!(mwr::AbstractMatrixWithRules, rule::AbstractRule) = push!(_get_rules(mwr), rule)
+add_rule!(mwr::AbstractMatrixWithRules, rule::AbstractRule) = push!(get_rules(mwr), rule)
 
 """
     `add_rule!(mwr::MatrixWithRules, RuleType::Type{R <: AbstractRule}, args...)
@@ -182,8 +193,76 @@ Interface for generating builders
 generate_builders(::AbstractMatrixWithRules) = Vector{AbstractRuleBuilder}()
 generate_builders!(mwr::AbstractMatrixWithRules) = mwr
 
-# Add new new functionality
-add_matrix!(mwrs::AbstractMatrixWithRules, args...; kwargs...) = mwrs
+build(mwr::MatrixWithRules{T, M}, args...; kwargs...) = get_matrix(mwr)
+build!(mwr::MatrixWithRules{T, M}, args...; kwargs...) = set_matrix!(mwr, get_matrix(mwr))
+
+#=
+##     ##    ###    ######## ########  ####  ######  ########  ######  ##      ## #### ######## ##     ## ########  ##     ## ##       ########  ######
+###   ###   ## ##      ##    ##     ##  ##  ##    ## ##       ##    ## ##  ##  ##  ##     ##    ##     ## ##     ## ##     ## ##       ##       ##    ##
+#### ####  ##   ##     ##    ##     ##  ##  ##       ##       ##       ##  ##  ##  ##     ##    ##     ## ##     ## ##     ## ##       ##       ##
+## ### ## ##     ##    ##    ########   ##  ##       ######    ######  ##  ##  ##  ##     ##    ######### ########  ##     ## ##       ######    ######
+##     ## #########    ##    ##   ##    ##  ##       ##             ## ##  ##  ##  ##     ##    ##     ## ##   ##   ##     ## ##       ##             ##
+##     ## ##     ##    ##    ##    ##   ##  ##    ## ##       ##    ## ##  ##  ##  ##     ##    ##     ## ##    ##  ##     ## ##       ##       ##    ##
+##     ## ##     ##    ##    ##     ## ####  ######  ########  ######   ###  ###  ####    ##    ##     ## ##     ##  #######  ######## ########  ######
+=#
+
+"""
+    AbstractMatricesWithRules
+
+Abstract MatrixWithRules type, used to define the interface.  The default interface assumes the fields:
+
+* `adims` :: AD.Dimensions
+* `mwrs` :: Vector{AbstractMatrixWithRules}
+* `matrix` :: AbstractMatrix
+
+"""
+
+abstract type AbstractMatricesWithRules{T, M} <: AbstractMatrixWithRules{T} end
+get_matrices(mwrs::AbstractMatricesWithRules) = mwrs.matrices
+
+# Implement AbstractMatrixWithRules interface
+get_matrix(mwrs::AbstractMatricesWithRules, name::Symbol) = get_matrices(mwrs)[name]
+set_matrix!(mwrs::AbstractMatricesWithRules, name::Symbol, matrix) = set_matrix!(get_matrix(mwrs, name), matrix)
+
+get_default_kwargs(mwrs::AbstractMatricesWithRules; kwargs) = error("Must specify which element of a MatricesWithRules is being accessed")
+get_default_kwargs(mwrs::AbstractMatricesWithRules, name::Symbol) = get_default_kwargs(get_matrix(mwrs, name))
+
+set_default_kwargs!(mwrs::AbstractMatricesWithRules, kwargs) = error("Must specify which element of a MatricesWithRules is being set")
+set_default_kwargs!(mwrs::AbstractMatricesWithRules, name::Symbol, kwargs) = set_default_kwargs!(get_matrix(mwrs, name), kwargs)
+
+add_rule!(mwrs::AbstractMatricesWithRules, name::Symbol, args...; kwargs...) = add_rule!(get_matrix(mwrs, name), args...; kwargs...)
+
+function generate_builders!(mwrs::AbstractMatricesWithRules)
+    for (_, mwr) in get_matrix(mwrs, name)
+        generate_builders!(mwr)
+    end
+    return mwrs
+end
+
+"""
+    build!(mwrs::AbstractMatricesWithRules; names=nothing, kwargs...)
+
+method of build! for abstract type AbstractMatricesWithRules.  Adds a keyword argument `name` that
+optionally specifies which of the matrices to build.
+"""
+function build!(mwrs::AbstractMatricesWithRules; names=nothing, kwargs...)
+
+    matrices = get_matrices(mwrs)
+
+    if names === nothing
+        names = keys(matrices)
+    end
+
+    for name in names
+        mwr = matrices[name]
+        build!(mwr; kwargs...)
+    end
+
+    matrix = mapreduce(mwr -> get_matrix(mwr), +, values(matrices))
+    set_matrix!(mwrs, matrix)
+end
+
+add_matrix!(mwrs::AbstractMatricesWithRules, name::Symbol, args...; kwargs...) = error("add_matrix! must be implemented for type $(typeof(mwrs))")
 
 #=
  ######   #######  ##       ##     ## ######## ########   ######
@@ -202,7 +281,7 @@ Encodes information required to actually obtain solutions to the matrix problem
 """
 
 
-abstract type AbstractMatrixSolver{T, M} <: AbstractMatrixWithRules{T, M} end
-get_array(ms::AbstractMatrixSolver) = get_array(ms.mwr)
+abstract type AbstractMatrixSolver{T, M} <: AbstractMatricesWithRules{T, M} end
+get_matrix(ms::AbstractMatrixSolver) = get_matrix(ms.mwrs)
 
 end
