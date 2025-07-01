@@ -15,235 +15,14 @@ module MatrixBuilders
 #
 # where the rule is that for these CamelCase types I am combining the first letter of each word.
 #
-using ..AbstractTypes
-import ..AbstractTypes: build_rules!, build, build!, add_rule!, generate_builders!, generate_builders, add_matrix!, get_default_kwargs, set_default_kwargs! # To be overloaded
-
+using QGas.NumericalTools.ArrayDimensions: Dimensions, index_to_coords, index_to_values
 using ..Helpers: DimensionWithSpace, base_typeof
+using ..Rules
 
-import QGas.NumericalTools.ArrayDimensions as AD
+using ..AbstractTypes
+import ..AbstractTypes: build_rules!, build, build!, add_rule!, generate_builders!, generate_builders, add_leaf!, get_default_kwargs, set_default_kwargs! # To be overloaded
 
-
-export DimensionWithSpace, RelativeRule, ElementRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
-
-
-#=
-########  ##     ## ##       ########  ######
-##     ## ##     ## ##       ##       ##    ##
-##     ## ##     ## ##       ##       ##
-########  ##     ## ##       ######    ######
-##   ##   ##     ## ##       ##             ##
-##    ##  ##     ## ##       ##       ##    ##
-##     ##  #######  ######## ########  ######
-=#
-
-
-#=
-########  ######## ##          ###    ######## #### ##     ## ########
-##     ## ##       ##         ## ##      ##     ##  ##     ## ##
-##     ## ##       ##        ##   ##     ##     ##  ##     ## ##
-########  ######   ##       ##     ##    ##     ##  ##     ## ######
-##   ##   ##       ##       #########    ##     ##   ##   ##  ##
-##    ##  ##       ##       ##     ##    ##     ##    ## ##   ##
-##     ## ######## ######## ##     ##    ##    ####    ###    ########
-=#
-"""
-    `RelativeRule{F} <: AbstractRule`
-    `RelativeRuleBuilder <: AbstractRuleBuilder`
-    
-A rule and binder for functions of the displacement coordinate (currently fixed as an integer, but this need not be the case).
-
-    `RelativeRuleBuilder`
-
-Encodes the relative rules that are to be run each time a full matrix is assembled.  
-This precomputes all calls to index_to_coords and valid_coords, increasing
-performance, at the expense of memory.
-"""
-struct RelativeRule{F} <: AbstractRule
-    func::F
-    Δ::Vector{Int}
-end
-RelativeRule(::Type{M}, func, Δ) where M = RelativeRule(func, Δ)
-
-(a::RelativeRule)(x0::Vector, x1::Vector; kwargs...) = a.func(x0, x1; kwargs...)
-
-struct RelativeRuleBuilder <: AbstractRuleBuilder
-    # the actual matrix elements i, j, being written to
-    actions::Vector{Tuple{Tuple{Int,Int}, RelativeRule}}
-end
-matrix_builder(::Type{RelativeRule}, args...; kwargs...) = RelativeRuleBuilder(args...; kwargs...)
-
-function RelativeRuleBuilder(rules::Vector{RelativeRule}, adims::AD.Dimensions, index_to_coords::Vector{Vector{Int}})
-
-    rb = RelativeRuleBuilder([])
-
-    if length(rules) != 0
-        for (i, coords) in enumerate(index_to_coords), rule in rules
-            new_coords = coords .+ rule.Δ
-
-            if AD.valid_coords(adims, new_coords)
-                j = AD.coords_to_index(adims, new_coords)
-                push!(rb.actions, ((i, j), rule))
-            end
-        end
-    end
-    
-    return rb
-end
-
-function (rb::RelativeRuleBuilder)(mat, index_to_values; kwargs...)
-
-    for ((i,j), rule) in rb.actions
-        mat[i,j] += rule(index_to_values[i], index_to_values[j]; kwargs...)
-    end
-    
-    return mat
-end
-
-#=
-######## ##       ######## ##     ## ######## ##    ## ########
-##       ##       ##       ###   ### ##       ###   ##    ##
-##       ##       ##       #### #### ##       ####  ##    ##
-######   ##       ######   ## ### ## ######   ## ## ##    ##
-##       ##       ##       ##     ## ##       ##  ####    ##
-##       ##       ##       ##     ## ##       ##   ###    ##
-######## ######## ######## ##     ## ######## ##    ##    ##
-=#
-"""
-    `ElementRule{F} <: AbstractRule`
-    `ElementRuleBuilder <: AbstractRuleBuilder`
-    
-A rule and binder for functions of actual matrix elements.
-
-    `ElementRuleBuilder`
-
-Encodes the element rules that are to be run each time a full matrix is assembled.  
-This precomputes all calls to index_to_coords and valid_coords, increasing
-performance, at the expense of memory.
-"""
-
-struct ElementRule{F} <: AbstractRule
-    func::F
-    x0::Vector{Int}
-    x1::Vector{Int}
-end
-ElementRule(::Type{M}, func, x0, x1) where M = ElementRule(func, x0, x1)
-
-(a::ElementRule)(x0::Vector, x1::Vector; kwargs...) = a.func(x0, x1; kwargs...)
-
-struct ElementRuleBuilder <: AbstractRuleBuilder
-    # the actual matrix elements i, j, being written to
-    actions::Vector{Tuple{Tuple{Int,Int}, RelativeRule}}
-end
-matrix_builder(::Type{ElementRule}, args...; kwargs...) = ElementRuleBuilder(args...; kwargs...)
-
-function ElementRuleBuilder(rules::Vector{RelativeRule}, adims::AD.Dimensions, index_to_coords::Vector{Vector{Int}})
-
-    rb = ElementRuleBuilder([])
-
-    if length(rules) != 0
-        for rule in rules
-
-            if AD.valid_coords(adims, rule.x0) && AD.valid_coords(adims, rule.x1)
-                i = AD.coords_to_index(adims, rule.x0)
-                j = AD.coords_to_index(adims, rule.x1)
-                push!(rb.actions, ((i, j), rule))
-            end
-        end
-    end
-    
-    return rb
-end
-
-# This is actually the same as the RelativeRuleBuilder since we iterate over the from-to rules in the end of the day
-function (rb::ElementRuleBuilder)(mat, index_to_values; kwargs...)
-
-    for ((i,j), rule) in rb.actions
-        mat[i,j] += rule(index_to_values[i], index_to_values[j]; kwargs...)
-    end
-    
-    return mat
-end
-
-#=
-   ###    ########   ######   #######  ##       ##     ## ######## ########
-  ## ##   ##     ## ##    ## ##     ## ##       ##     ##    ##    ##
- ##   ##  ##     ## ##       ##     ## ##       ##     ##    ##    ##
-##     ## ########   ######  ##     ## ##       ##     ##    ##    ######
-######### ##     ##       ## ##     ## ##       ##     ##    ##    ##
-##     ## ##     ## ##    ## ##     ## ##       ##     ##    ##    ##
-##     ## ########   ######   #######  ########  #######     ##    ########
-=#
-
-"""
-    AbsoluteRule{F} <: AbstractRule
-    AbsoluteRuleBuilder <: AbstractRuleBuilder
-
-A rule and builder for functions that return a complete matrix
-"""
-struct AbsoluteRule{F} <: AbstractRule
-    func::F
-end
-AbsoluteRule(::Type{M}, func) where M = AbsoluteRule(func)
-(a::AbsoluteRule)(kwargs...) = a.func(;kwargs...)
-
-struct AbsoluteRuleBuilder <: AbstractRuleBuilder
-    actions::Vector{AbsoluteRule}
-end
-matrix_builder(::Type{AbsoluteRule}) = AbsoluteRuleBuilder(args...; kwargs...)
-
-AbsoluteRuleBuilder(actions, args...; kwargs...) = AbsoluteRuleBuilder(actions)
-
-function (rb::AbsoluteRuleBuilder)(mat, args...; kwargs...) 
-    mat += mapreduce(r -> r.func(;kwargs...), +, rb.actions)
-    return mat
-end
-
-#=
-######## ##     ## ########  ##       ####  ######  #### ########
-##        ##   ##  ##     ## ##        ##  ##    ##  ##     ##
-##         ## ##   ##     ## ##        ##  ##        ##     ##
-######      ###    ########  ##        ##  ##        ##     ##
-##         ## ##   ##        ##        ##  ##        ##     ##
-##        ##   ##  ##        ##        ##  ##    ##  ##     ##
-######## ##     ## ##        ######## ####  ######  ####    ##
-=#
-
-"""
-    ExplicitRule{M<:AbstractMatrix} <: AbstractRule
-    ExplicitRuleBuilder <: AbstractRuleBuilder
-
-A rule and builder for for hard-coded matrices
-"""
-struct ExplicitRule{M<:AbstractMatrix} <: AbstractRule
-    matrix::M
-end
-function ExplicitRule(::Type{M}, mat) where M
-
-    try
-        mat = convert(M, mat)
-    catch
-        throw(ArgumentError("Unable to convert passed matrix type $(eltype(matrix)) to $(T) "))
-    end
-
-    mat = M(mat)
-
-    ExplicitRule(mat)
-end
-
-(a::ExplicitRule)() = a.matrix
-
-struct ExplicitRuleBuilder <: AbstractRuleBuilder
-    actions::Vector{ExplicitRule}
-end
-matrix_builder(::Type{ExplicitRule}, args...; kwargs...) = ExplicitRuleBuilder(args...; kwargs...)
-
-ExplicitRuleBuilder(actions, args...; kwargs...) = ExplicitRuleBuilder(actions)
-
-function (rb::ExplicitRuleBuilder)(mat, args...; kwargs...)
-    mat += mapreduce(r -> r.matrix, +, rb.actions)
-
-    return mat
-end
+export MatrixWithRules, MatricesWithRules
 
 #=
 ##     ##    ###    ######## ########  #### ##     ##       ###    ##    ## ########     ########  ##     ## ##       ########  ######
@@ -272,7 +51,7 @@ rules: Each rule is a dictionary, and each rule specifies an individual matrix e
 Private fields (prefixed `_`) should only be touched by helpers.
 """
 mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
-    adims::AD.Dimensions # Spatial / internal dimensions of system
+    adims::Dimensions # Spatial / internal dimensions of system
     rules::Vector{AbstractRule}
     builders::Vector{AbstractRuleBuilder}
     matrix::M
@@ -285,9 +64,11 @@ mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithRul
     _default_kwargs::Dict{Symbol, Any} # Default kwargs
     _matrix_cached::Bool # whether the matrix is currently cached
 end
+isleaf(::MatricesWithRules) = Val{:leaf}
+
 function MatrixWithRules(
         ::Type{M}, 
-        adims::AD.Dimensions,
+        adims::Dimensions,
         index_to_coords,
         index_to_values; 
         cache_kwargs::Bool=true, 
@@ -309,13 +90,13 @@ function MatrixWithRules(
     )
 end
 
-function MatrixWithRules(::Type{M}, adims::AD.Dimensions; kwargs...) where M
+function MatrixWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
     
     # define the mapping from matrix index to (i,j,k, ...) coordinates
-    index_to_coords = AD.index_to_coords(Vector, adims)
+    index_to_coords = index_to_coords(Vector, adims)
 
     # define the mapping from linear array indices scaled values
-    index_to_values = AD.index_to_values(Vector, adims)
+    index_to_values = index_to_values(Vector, adims)
 
     MatrixWithRules(M, adims, index_to_coords, index_to_values; kwargs...)
 end
@@ -389,13 +170,13 @@ function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
 
         mwr._kwargs = kwargs
     else
-        mat = mwr.matrix
+        mat = get_matrix(mwr)
     end        
 
     return mat
 end
 function build!(mwr::MatrixWithRules; kwargs...)
-    mwr.matrix = build(mwr; kwargs...)
+    set_matrix!(mwr, build(mwr; kwargs...))
 
     mwr._matrix_cached = true
 
@@ -408,8 +189,8 @@ end
 A collection of MatrixWithRules each labeled by a symbol that share the same coordinate system.
 """
 mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatricesWithRules{T, M}
-    adims      :: AD.Dimensions
-    matrices   :: Dict{Symbol,MatrixWithRules{T,M}}
+    adims      :: Dimensions
+    mwrs       :: Dict{Symbol,MatrixWithRules{T,M}}
     matrix     :: M
     cache_kwargs::Bool
     options    :: Dict{Symbol,Any}         # global options (rarely needed)
@@ -419,7 +200,7 @@ mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatricesWith
     _index_to_values :: Vector{Vector{Float64}}
 end
 function MatricesWithRules(::Type{M},
-                           adims::AD.Dimensions,
+                           adims::Dimensions,
                            index_to_coords,
                            index_to_values;
                            cache_kwargs::Bool = true,
@@ -435,19 +216,21 @@ function MatricesWithRules(::Type{M},
         index_to_values
         )
 end
-function MatricesWithRules(::Type{M}, adims::AD.Dimensions; kwargs...) where M
+isleaf(::MatricesWithRules) = Val{:node}
+
+function MatricesWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
 
     return MatricesWithRules(
         M,
         adims,
-        AD.index_to_coords(Vector, adims),
-        AD.index_to_values(Vector, adims);
+        index_to_coords(Vector, adims),
+        index_to_values(Vector, adims);
         kwargs...
         )
 end
 
 # Add new new functionality
-function add_matrix!(mwrs::AbstractMatricesWithRules{T, M}, name::Symbol; kwargs...) where {T, M}
+function add_leaf!(Val{:node}, mwrs::MatrixWithRules{T, M}, name::Symbol; kwargs...) where {T, M}
     matrix = MatrixWithRules(
         M, 
         get_dimensions(mwrs),
@@ -460,5 +243,8 @@ function add_matrix!(mwrs::AbstractMatricesWithRules{T, M}, name::Symbol; kwargs
 
     return set_matrix!(mwrs, name, matrix)
 end
+add_leaf!(Val{:node}, args...; kwargs...) = throw(ArgumentError("`add_leaf!` not valid for $(typeof(mwrs))"))
+
+add_leaf!(mwrs::MatrixWithRules, name::Symbol; kwargs...) = add_leaf!(isleaf(mwrs), mwrs, name; kwargs...)
 
 end # MatrixBuilders

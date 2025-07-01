@@ -17,7 +17,7 @@ export AbstractRule, AbstractRuleBuilder, AbstractMatrixWithRules
 export get_matrix, set_matrix!
 export build_rules!, error_check, set_default_kwargs!, add_rule!, generate_builders!, generate_builders, build!, build
 
-export AbstractMatrixSolver
+export AbstractMatrixWithRules, AbstractMatrixSolver
 
 #=
 ########  ##     ## ##       ########  ######
@@ -103,28 +103,29 @@ matrix_builder(::Type{T}) where {T<:AbstractRule} = error("No builder defined fo
 """
     AbstractMatrixWithRules
 
-Abstract MatrixWithRules type, used to define the interface.  The default interface assumes the fields:
+Abstract MatrixWithRules type, this can be organized in a tree with leafs containing rules and nodes contain other nodes or
+leafs, but not rules.
 
-* `rules` :: Vector{AbstractRule}
-* `matrix` :: AbstractMatrix
+and the default interface assumes the fields:
+
 * `adims` :: AD.Dimensions
+* `matrix` :: AbstractMatrix
+
+only for leafs
+* `rules` :: Vector{AbstractRule}
+* `builders` :: Vector{AbstractRuleBuilder}
 * `_default_kwargs` :: Dict{Symbol, Any}
 
+only for nodes
+* `mwrs` :: Dict{Symbol,AbstractMatrixWithRules{T,M}}
 """
 abstract type AbstractMatrixWithRules{T, M} <: AbstractMatrix{T} end
 
-get_matrix(mwr::AbstractMatrixWithRules) = mwr.matrix
-set_matrix!(mwr::AbstractMatrixWithRules, matrix::AbstractMatrix) = mwr.matrix = matrix
+#
+# Assign traits 
+#
 
-get_rules(mwr::AbstractMatrixWithRules) = mwr.rules
-set_rules!(mwr::AbstractMatrixWithRules, rules) = mwr.rules = rules
-
-get_dimensions(mwr::AbstractMatrixWithRules) = mwr.adims
-set_dimensions!(mwr::AbstractMatrixWithRules, adims) = mwr.adims = adims
-
-get_default_kwargs(mwr::AbstractMatrixWithRules) = mwr._default_kwargs
-set_default_kwargs!(mwr::AbstractMatrixWithRules, kwargs) = mwr._default_kwargs = kwargs
-set_default_kwargs!(mwr::AbstractMatrixWithRules, args...; kwargs...) = set_default_kwargs!(mwr, args..., kwargs)
+isleaf(::AbstractMatrixWithRules) = Val(:undefined) # Val{:leaf} or Val{:node} for concrete types
 
 #
 # Implement array interface
@@ -144,7 +145,72 @@ isdone(mwr::AbstractMatrixWithRules, args...) = Base.isdone(get_matrix(mwr), arg
 issparse(mwr::AbstractMatrixWithRules) = issparse(get_matrix(mwr))
 
 #
-# New methods for AbstractMatrixWithRules
+# Define interface for all
+#
+
+get_matrix(mwr::AbstractMatrixWithRules) = mwr.matrix
+
+set_matrix!(mwr::AbstractMatrixWithRules, matrix::AbstractMatrix) = (mwr.matrix = matrix; mwr)
+
+get_dimensions(mwr::AbstractMatrixWithRules) = mwr.adims
+
+set_dimensions!(mwr::AbstractMatrixWithRules, adims) = (mwr.adims = adims; mwr)
+
+
+#
+# defined only for leafs
+#
+
+get_default_kwargs(::Val{:leaf}, mwr::AbstractMatrixWithRules) = mwr._default_kwargs
+get_default_kwargs(::Val, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`get_default_kwargs` is not defined for $(typeof(mwr))"))
+get_default_kwargs(mwr::AbstractMatrixWithRules) = get_default_kwargs(isleaf(mwr), mwr)
+
+set_default_kwargs!(::Val{:leaf}, mwr::AbstractMatrixWithRules, kwargs) = (mwr._default_kwargs = kwargs; mwr)
+set_default_kwargs!(::Val, mwr::AbstractMatrixWithRules, kwargs) = throw(ArgumentError("`set_default_kwargs!` is not defined for $(typeof(mwr))"))
+set_default_kwargs!(mwr::AbstractMatrixWithRules, kwargs) = set_default_kwargs!(isleaf(mwr), mwr, kwargs)
+set_default_kwargs!(mwr::AbstractMatrixWithRules; kwargs...) = set_default_kwargs!(mwr, Dict(kwargs))
+
+get_rules(::Val{:leaf}, mwr::AbstractMatrixWithRules) = mwr.rules
+get_rules(::Val, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`get_rules` is not defined for $(typeof(mwr))"))
+get_rules(mwr::AbstractMatrixWithRules) = get_rules(isleaf(mwr), mwr) 
+
+set_rules!(::Val{:leaf}, mwr::AbstractMatrixWithRules, rules) = (mwr.rules = rules; mwr)
+set_rules!(::Val, mwr::AbstractMatrixWithRules, rules) = throw(ArgumentError("`set_rules!` is not defined for $(typeof(mwr))"))
+set_rules!(mwr::AbstractMatrixWithRules, rules) = set_rules!(isleaf(mwr), mwr, rules) 
+
+#
+# methods defined only by nodes 
+#
+
+get_leafs(::Val{:node}, mwr::AbstractMatrixWithRules) = mwr.mwrs
+get_leafs(::Val, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`get_leafs` is not defined for $(typeof(mwr))"))
+get_leafs(mwr::AbstractMatrixWithRules) = get_leafs(isleaf(mwr), mwr)
+
+# TODO: should this be implemented here for the abstract type?
+add_leaf!(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = error("add_leaf! must be implemented for type $(typeof(mwr))")
+add_leaf!(::Val, mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = throw(ArgumentError("`add_leaf!` is not defined for $(typeof(mwr))"))
+
+add_leaf!(mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = add_leaf!(isleaf(mwr), mwr, name, args...; kwargs...)
+
+get_matrix(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol) = get_matrix(get_leafs(mwr)[name])
+get_matrix(::Val, mwr::AbstractMatrixWithRules, name::Symbol) = throw(ArgumentError("`get_matrix` accepts no `name` field for $(typeof(mwr))"))
+get_matrix(mwr::AbstractMatrixWithRules, name::Symbol) = get_matrix(isleaf(mwr), mwr, name)
+
+set_matrix!(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol, matrix) = set_matrix!(get_matrix(mwr, name), matrix)
+set_matrix!(::Val, mwr::AbstractMatrixWithRules, name::Symbol, matrix) = throw(ArgumentError("`set_matrix!` accepts no `name` field for $(typeof(mwr))"))
+set_matrix!(mwr::AbstractMatrixWithRules, name::Symbol, matrix) = set_matrix!(isleaf(mwr), mwr, name, matrix)
+
+get_default_kwargs(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol) = get_default_kwargs(get_leafs(mwr)[name])
+get_default_kwargs(::Val, mwr::AbstractMatrixWithRules, name::Symbol) = throw(ArgumentError("`get_default_kwargs` accepts no `name` field for $(typeof(mwr))"))
+get_default_kwargs(mwr::AbstractMatrixWithRules, name::Symbol) = get_default_kwargs(isleaf(mwr), mwr, name)
+
+set_default_kwargs!(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = set_default_kwargs!(get_leafs(mwr)[name], kwargs)
+set_default_kwargs!(::Val, mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = throw(ArgumentError("`set_default_kwargs!` accepts no `name` field for $(typeof(mwr))"))
+set_default_kwargs!(mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = set_default_kwargs!(isleaf(mwr), mwr, name, kwargs)
+set_default_kwargs!(mwr::AbstractMatrixWithRules, name::Symbol; kwargs) = set_default_kwargs!(mwr, name, Dict(kwargs))
+
+#
+# Methods for AbstractMatrixWithRules that perform non-trivial actions either here or when implemented
 #
 
 """
@@ -159,15 +225,21 @@ build_rules!(mwr::AbstractMatrixWithRules) = mwr
 
 check for errors
 """
+
+error_check(::Val{:undefined}, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`isleaf` not overridden for $(typeof(mwr))"))
+error_check(::Val{:leaf}, mwr::AbstractMatrixWithRules) = nothing
+error_check(::Val{:node}, mwr::AbstractMatrixWithRules) = foreach(error_check, values(get_leafs(mwr)))
+
 function error_check(mwr::AbstractMatrixWithRules) 
     
-    # The only possible error at this point is a dimension mismatch between the matrix and the dimensions
     len_mwr = length(mwr)
     len_dims = length(get_dimensions(mwr))
     if len_mwr != len_dims
         throw(DimensionMismatch("Length of stored matrix $(len_mwr) does not match length of dimensions $(len_dims)"))
     end
-    
+
+    # now do a trait-by-trait check
+    error_check(isleaf(mwr), mwr) 
 end
 
 """
@@ -175,7 +247,10 @@ end
 
 Adds a rule of any type to `mwr`.  Methods exist that directly take the arguments for each rule type.
 """
-add_rule!(mwr::AbstractMatrixWithRules, rule::AbstractRule) = push!(get_rules(mwr), rule)
+add_rule!(::Val{:leaf}, mwr::AbstractMatrixWithRules, rule::AbstractRule) = (push!(get_rules(mwr), rule); mwr)
+add_rule!(::Val, mwr::AbstractMatrixWithRules, rule::AbstractRule) = throw(ArgumentError("`add_rule!`: invalid call signature for $(typeof(mwr))"))
+
+add_rule!(mwr::AbstractMatrixWithRules, rule::AbstractRule) = add_rule!(isleaf(mwr), mwr, rule)
 
 """
     `add_rule!(mwr::MatrixWithRules, RuleType::Type{R <: AbstractRule}, args...)
@@ -185,84 +260,71 @@ Adds a rule of any type to `mwr`.  Dispatch to the type provided by RuleType.
 add_rule!(mwr::AbstractMatrixWithRules{T, M}, RuleType::Type{R}, args...) where {T, M, R <:AbstractRule} = add_rule!(mwr, RuleType(M, args...))
 
 """
+    `add_rule!(mwr::MatrixWithRules, name::Symbol, args...; kwargs...)
+
+Dispatches add rule to a leaf.
+"""
+add_rule!(::Val{:node}, mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = add_rule!(get_leafs(mwr)[name], args...; kwargs...)
+add_rule!(::Val, mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = throw(ArgumentError("`add_rule!`: name field not supported for $(typeof(mwr))"))
+
+add_rule!(mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = add_rule!(isleaf(mwr), mwr, name, args...; kwargs...)
+
+
+"""
     generate_builders(mwr::AbstractMatrixWithRules)::Vector{AbstractRuleBuilder}()
     generate_builders!(mwr::AbstractMatrixWithRules)::AbstractMatrixWithRules
 
 Interface for generating builders
 """
-generate_builders(::AbstractMatrixWithRules) = Vector{AbstractRuleBuilder}()
-generate_builders!(mwr::AbstractMatrixWithRules) = mwr
+generate_builders(::Val{:leaf}, mwr::AbstractMatrixWithRules) = Vector{AbstractRuleBuilder}()
 
-build(mwr::MatrixWithRules{T, M}, args...; kwargs...) = get_matrix(mwr)
-build!(mwr::MatrixWithRules{T, M}, args...; kwargs...) = set_matrix!(mwr, get_matrix(mwr))
-
-#=
-##     ##    ###    ######## ########  ####  ######  ########  ######  ##      ## #### ######## ##     ## ########  ##     ## ##       ########  ######
-###   ###   ## ##      ##    ##     ##  ##  ##    ## ##       ##    ## ##  ##  ##  ##     ##    ##     ## ##     ## ##     ## ##       ##       ##    ##
-#### ####  ##   ##     ##    ##     ##  ##  ##       ##       ##       ##  ##  ##  ##     ##    ##     ## ##     ## ##     ## ##       ##       ##
-## ### ## ##     ##    ##    ########   ##  ##       ######    ######  ##  ##  ##  ##     ##    ######### ########  ##     ## ##       ######    ######
-##     ## #########    ##    ##   ##    ##  ##       ##             ## ##  ##  ##  ##     ##    ##     ## ##   ##   ##     ## ##       ##             ##
-##     ## ##     ##    ##    ##    ##   ##  ##    ## ##       ##    ## ##  ##  ##  ##     ##    ##     ## ##    ##  ##     ## ##       ##       ##    ##
-##     ## ##     ##    ##    ##     ## ####  ######  ########  ######   ###  ###  ####    ##    ##     ## ##     ##  #######  ######## ########  ######
-=#
-
-"""
-    AbstractMatricesWithRules
-
-Abstract MatrixWithRules type, used to define the interface.  The default interface assumes the fields:
-
-* `adims` :: AD.Dimensions
-* `mwrs` :: Vector{AbstractMatrixWithRules}
-* `matrix` :: AbstractMatrix
-
-"""
-
-abstract type AbstractMatricesWithRules{T, M} <: AbstractMatrixWithRules{T} end
-get_matrices(mwrs::AbstractMatricesWithRules) = mwrs.matrices
-
-# Implement AbstractMatrixWithRules interface
-get_matrix(mwrs::AbstractMatricesWithRules, name::Symbol) = get_matrices(mwrs)[name]
-set_matrix!(mwrs::AbstractMatricesWithRules, name::Symbol, matrix) = set_matrix!(get_matrix(mwrs, name), matrix)
-
-get_default_kwargs(mwrs::AbstractMatricesWithRules; kwargs) = error("Must specify which element of a MatricesWithRules is being accessed")
-get_default_kwargs(mwrs::AbstractMatricesWithRules, name::Symbol) = get_default_kwargs(get_matrix(mwrs, name))
-
-set_default_kwargs!(mwrs::AbstractMatricesWithRules, kwargs) = error("Must specify which element of a MatricesWithRules is being set")
-set_default_kwargs!(mwrs::AbstractMatricesWithRules, name::Symbol, kwargs) = set_default_kwargs!(get_matrix(mwrs, name), kwargs)
-
-add_rule!(mwrs::AbstractMatricesWithRules, name::Symbol, args...; kwargs...) = add_rule!(get_matrix(mwrs, name), args...; kwargs...)
-
-function generate_builders!(mwrs::AbstractMatricesWithRules)
-    for (_, mwr) in get_matrix(mwrs, name)
-        generate_builders!(mwr)
+function generate_builders!(::Val{:node}, mwr::AbstractMatrixWithRules)
+    for (_, leaf) in get_leafs(mwr)
+        generate_builders!(leaf)
     end
-    return mwrs
+    return mwr
 end
 
-"""
-    build!(mwrs::AbstractMatricesWithRules; names=nothing, kwargs...)
+generate_builders!(::Val, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`generate_builders!`: not supported for $(typeof(mwr))"))
 
-method of build! for abstract type AbstractMatricesWithRules.  Adds a keyword argument `name` that
-optionally specifies which of the matrices to build.
-"""
-function build!(mwrs::AbstractMatricesWithRules; names=nothing, kwargs...)
+generate_builders!(mwr::AbstractMatrixWithRules) = generate_builders!(isleaf(mwr), mwr)
 
-    matrices = get_matrices(mwrs)
+"""
+    build(mwr::AbstractMatrixWithRules)
+    build!(mwr::AbstractMatrixWithRules; names=nothing, kwargs...)
+
+Interface for generating builders.
+
+    * `names` :: Vector{Symbol} : only valid for node types where it optionally specifies which of the matrices to build.
+"""
+
+# Based on the pattern above, I should actually move the now generic code that performs the building for leafs to here 
+# from the concrete type definitions
+
+build(::Val{:leaf}, mwr::AbstractMatrixWithRules, args...; kwargs...) = get_matrix(mwr)
+
+
+function build(::Val{:node}, mwr::AbstractMatrixWithRules; names=nothing, kwargs...)
+
+    leafs = get_leafs(mwr)
 
     if names === nothing
-        names = keys(matrices)
+        names = keys(leafs)
     end
 
     for name in names
-        mwr = matrices[name]
-        build!(mwr; kwargs...)
+        leaf = leafs[name]
+        build!(leaf; kwargs...)
     end
 
-    matrix = mapreduce(mwr -> get_matrix(mwr), +, values(matrices))
-    set_matrix!(mwrs, matrix)
+    matrix = mapreduce(mwr -> get_matrix(mwr), +, values(leafs))
+    set_matrix!(mwr, matrix)
 end
+build!(::Val, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`build!`: not supported for $(typeof(mwr))"))
 
-add_matrix!(mwrs::AbstractMatricesWithRules, name::Symbol, args...; kwargs...) = error("add_matrix! must be implemented for type $(typeof(mwrs))")
+build(mwr::AbstractMatrixWithRules, args...; kwargs...) = build(isleaf(mwr), mwr, args...; kwargs...)
+
+build!(mwr::AbstractMatrixWithRules, args...; kwargs...) = set_matrix!(mwr, build(mwr, args...; kwargs...))
 
 #=
  ######   #######  ##       ##     ## ######## ########   ######
@@ -277,11 +339,15 @@ add_matrix!(mwrs::AbstractMatricesWithRules, name::Symbol, args...; kwargs...) =
 """
     AbstractMatrixSolver
 
-Encodes information required to actually obtain solutions to the matrix problem
+Encodes information required to actually obtain solutions to the matrix problem.  The standard interface
+only assumes the existence of the field
+    * mwr :: AbstractMatricesWithRules 
+this can have either the Val(:leaf) or Val(:node) flag
 """
 
+abstract type AbstractMatrixSolver{T, M} <: AbstractMatrixWithRules{T, M} end
+isleaf(ams::AbstractMatrixSolver) = isleaf(ams.mwr)
 
-abstract type AbstractMatrixSolver{T, M} <: AbstractMatricesWithRules{T, M} end
-get_matrix(ms::AbstractMatrixSolver) = get_matrix(ms.mwrs)
+get_matrix(ms::AbstractMatrixSolver, args...; kwargs...) = get_matrix(ms.mwr, args...; kwargs...)
 
 end
