@@ -18,20 +18,21 @@ There are two basic and disconnected groups of types: those derived from `Abstra
 The rules hierarchy provides individual construction rules that can be composed to generate matrices.
 ```
 AbstractRule ┬
-             ├─ RelativeRule 
-             ├─ ElementRule
-             ├─ AbsoluteRule
-             └─ ExplicitRule
+    ├─ RelativeRule 
+    ├─ ElementRule
+    ├─ AbsoluteRule
+    └─ ExplicitRule
 ```
 
 The matrices hierarchy collects these rules together to construct matrices, and use them to efficiently encode physical problems.
 ```
-AbstractMatrix ┬
-               └─ AbstractMatrixWithRules ┬                                                
-                                          ├─ MatrixWithRules 
-                                          ├─ MatricesWithRules              
-                                          └─ AbstractMatrixSolver ┬  
-                                                                  ├─ QMSolver
-                                                                  ...
+AbstractMatrix
+    └─ AbstractMatrixWithRules                                              
+        ├─ MatrixWithRules 
+        ├─ MatricesWithRules
+        └─ AbstractMatrixSolver
+            ├─ QMSolver   
+            └─ AbstractMatrixSolver 
+                ... specific solvers
 ```
 The `...` indicates that every specific type of solver is also a `AbstractMatrixSolver`.
