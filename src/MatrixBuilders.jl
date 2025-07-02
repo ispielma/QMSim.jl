@@ -18,9 +18,13 @@ module MatrixBuilders
 using QGas.NumericalTools.ArrayDimensions: Dimensions, index_to_coords, index_to_values
 using ..Helpers: DimensionWithSpace, base_typeof
 using ..Rules
+using ..AbstractMatrixTypes
 
-using ..AbstractTypes
-import ..AbstractTypes: build_rules!, build, build!, add_rule!, generate_builders!, generate_builders, add_leaf!, get_default_kwargs, set_default_kwargs! # To be overloaded
+# To be overloaded for new types
+import ..AbstractMatrixTypes: isleaf
+import ..AbstractMatrixTypes: get_default_kwargs, set_default_kwargs!, get_rules, set_rules!, add_rule!
+import ..AbstractMatrixTypes: get_leafs, add_leaf!
+import ..AbstractMatrixTypes: build_rules!, error_check, build, build!, generate_builders!, generate_builders
 
 export MatrixWithRules, MatricesWithRules
 
@@ -64,13 +68,13 @@ mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithRul
     _default_kwargs::Dict{Symbol, Any} # Default kwargs
     _matrix_cached::Bool # whether the matrix is currently cached
 end
-isleaf(::MatricesWithRules) = Val{:leaf}
+isleaf(::Type{<:MatrixWithRules}) = LeafTrait()
 
 function MatrixWithRules(
         ::Type{M}, 
         adims::Dimensions,
-        index_to_coords,
-        index_to_values; 
+        _index_to_coords,
+        _index_to_values; 
         cache_kwargs::Bool=true, 
         options=Dict{Symbol, Any}()
     ) where M
@@ -82,8 +86,8 @@ function MatrixWithRules(
         zeros(M, eltype(M), length(adims), length(adims) ), 
         cache_kwargs, 
         options,
-        index_to_coords,
-        index_to_values,
+        _index_to_coords,
+        _index_to_values,
         Dict(),
         Dict(),
         false
@@ -93,12 +97,12 @@ end
 function MatrixWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
     
     # define the mapping from matrix index to (i,j,k, ...) coordinates
-    index_to_coords = index_to_coords(Vector, adims)
+    _index_to_coords = index_to_coords(Vector, adims)
 
     # define the mapping from linear array indices scaled values
-    index_to_values = index_to_values(Vector, adims)
+    _index_to_values = index_to_values(Vector, adims)
 
-    MatrixWithRules(M, adims, index_to_coords, index_to_values; kwargs...)
+    MatrixWithRules(M, adims, _index_to_coords, _index_to_values; kwargs...)
 end
 
 """
@@ -188,7 +192,7 @@ end
 
 A collection of MatrixWithRules each labeled by a symbol that share the same coordinate system.
 """
-mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatricesWithRules{T, M}
+mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
     adims      :: Dimensions
     mwrs       :: Dict{Symbol,MatrixWithRules{T,M}}
     matrix     :: M
@@ -199,10 +203,12 @@ mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatricesWith
     _index_to_coords :: Vector{Vector{Int}}
     _index_to_values :: Vector{Vector{Float64}}
 end
+isleaf(::Type{<:MatricesWithRules}) = NodeTrait()
+
 function MatricesWithRules(::Type{M},
                            adims::Dimensions,
-                           index_to_coords,
-                           index_to_values;
+                           _index_to_coords,
+                           _index_to_values;
                            cache_kwargs::Bool = true,
                            options = Dict{Symbol,Any}()) where M
 
@@ -212,14 +218,12 @@ function MatricesWithRules(::Type{M},
         zeros(M, eltype(M), length(adims), length(adims) ),
         cache_kwargs,
         options,
-        index_to_coords,
-        index_to_values
+        _index_to_coords,
+        _index_to_values
         )
 end
-isleaf(::MatricesWithRules) = Val{:node}
 
 function MatricesWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
-
     return MatricesWithRules(
         M,
         adims,
@@ -229,9 +233,8 @@ function MatricesWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
         )
 end
 
-# Add new new functionality
-function add_leaf!(Val{:node}, mwrs::MatrixWithRules{T, M}, name::Symbol; kwargs...) where {T, M}
-    matrix = MatrixWithRules(
+MatrixWithRules(mwrs::MatricesWithRules{T, M}; kwargs...) where {T, M} = 
+    MatrixWithRules(
         M, 
         get_dimensions(mwrs),
         mwrs._index_to_coords,  
@@ -241,10 +244,8 @@ function add_leaf!(Val{:node}, mwrs::MatrixWithRules{T, M}, name::Symbol; kwargs
         kwargs...
     )
 
-    return set_matrix!(mwrs, name, matrix)
-end
-add_leaf!(Val{:node}, args...; kwargs...) = throw(ArgumentError("`add_leaf!` not valid for $(typeof(mwrs))"))
-
-add_leaf!(mwrs::MatrixWithRules, name::Symbol; kwargs...) = add_leaf!(isleaf(mwrs), mwrs, name; kwargs...)
+# Overload methods
+add_leaf!(::NodeTrait, mwrs::MatricesWithRules, name::Symbol; kwargs...) = mwrs.mwrs[name] = MatrixWithRules(mwrs; kwargs...)
+add_leaf!(mwrs::MatricesWithRules, name::Symbol; kwargs...) = add_leaf!(isleaf(mwrs), mwrs, name; kwargs...)
 
 end # MatrixBuilders

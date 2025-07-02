@@ -13,13 +13,14 @@ include("Rules.jl"); using .Rules
 export AbstractRule, AbstractRuleBuilder, RelativeRule, ElementRule, AbsoluteRule, ExplicitRule
 export matrix_builder
 
-# include("AbstractTypes.jl"); using .AbstractTypes
-# export AbstractRule, AbstractRuleBuilder, AbstractMatrixWithRules # types
-# export get_array, build_rules!, set_default_kwargs!, dim # methods
+include("AbstractMatrixTypes.jl"); using .AbstractMatrixTypes
+export AbstractMatrixWithRules, isleaf
+export get_matrix, set_matrix!, get_dimensions, set_dimensions!, get_default_kwargs, set_default_kwargs!
+export get_rules, set_rules!, add_rule!, get_leafs, add_leaf!
+export dim, build_rules!, error_check, generate_builders!, generate_builders, build!, build
 
-# include("MatrixBuilders.jl"); using .MatrixBuilders
-# export RelativeRule, ElementRule, AbsoluteRule, ExplicitRule, MatrixWithRules, MatricesWithRules
-# export add_rule!, build!, generate_builders!, generate_builders, add_matrix!
+include("MatrixBuilders.jl"); using .MatrixBuilders
+export MatrixWithRules, MatricesWithRules
 
 # include("MatrixSolvers.jl"); using .MatrixSolvers
 # export QMSolver, eigensystem!

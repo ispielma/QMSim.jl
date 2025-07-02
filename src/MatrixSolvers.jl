@@ -10,7 +10,7 @@ using LinearAlgebra, SparseArrays, Arpack
 import QGas.NumericalTools.ArrayDimensions as AD
 
 # For overloading
-import ..AbstractTypes: get_array, build_rules!, add_rule!, error_check, generate_builders!, generate_builders
+import ..AbstractMatrixTypes: get_array, build_rules!, add_rule!, error_check, generate_builders!, generate_builders
 import ..MatrixBuilders: add_matrix!, build!
 
 using ..AbstractTypes
