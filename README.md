@@ -27,12 +27,11 @@ AbstractRule ┬
 The matrices hierarchy collects these rules together to construct matrices, and use them to efficiently encode physical problems.
 ```
 AbstractMatrix
-    └─ AbstractMatrixWithRules                                              
-        ├─ MatrixWithRules 
-        ├─ MatricesWithRules
-        └─ AbstractMatrixSolver
-            ├─ QMSolver   
-            └─ AbstractMatrixSolver 
-                ... specific solvers
+    └─ AbstractMatrixWithRules [UndefinedTrait]
+        ├─ MatrixWithRules [LeafTrait]
+        ├─ MatricesWithRules [NodeTrait]
+        └─ AbstractMatrixSolver [NodeTrait, SolverUndefinedTrait]
+            ├─ QMSolver [NodeTrait, SolverFrameworkTrait]
+            ... specific solvers [NodeTrait, SolverTrait]
 ```
-The `...` indicates that every specific type of solver is also a `AbstractMatrixSolver`.
+Notice that I have also defined traits `[UndefinedTrait, LeafTrait, NodeTrait]` to specialize dispatch on other qualities of the object.

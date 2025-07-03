@@ -9,14 +9,17 @@ module MatrixSolvers
 using LinearAlgebra, SparseArrays, Arpack
 import QGas.NumericalTools.ArrayDimensions as AD
 
-# For overloading
-import ..AbstractMatrixTypes: get_array, build_rules!, add_rule!, error_check, generate_builders!, generate_builders
-import ..MatrixBuilders: add_matrix!, build!
+# Internal imports
+using ..Helpers
+using ..AbstractSolverTypes: AbstractMatrixSolver, IsSolverTrait, SolverTrait, SolverFrameworkTrait, SolverUndefinedTrait
+using ..AbstractMatrixTypes
+using ..MatrixBuilders: MatricesWithRules
 
-using ..AbstractTypes
-using ..MatrixBuilders
+export QMSolver, eigensystem!, rank_ordering!
 
-export QMSolver, eigensystem!
+# To add methods
+import ..AbstractMatrixTypes: isleaf
+import ..AbstractSolverTypes: issolver
 
 """
     QMSolver{T, M<:AbstractMatrix{T}}
@@ -30,59 +33,41 @@ Subtype of AbstractMatrixWithRules that is specifically for solving quantum mech
 
 """
 mutable struct QMSolver{T, M<:AbstractMatrix{T}} <: AbstractMatrixSolver{T,M}
-    adims       ::AD.Dimensions
-    mwrs        ::MatricesWithRules{T,M}
+    shared      :: MatrixSharedData
+    mwrs         :: MatricesWithRules{T,M} # TODO: change this to be any AbstractMatrixWithRules?
     eigenvalues ::Vector{T}
     eigenvectors::Matrix{T}
     num_states  ::Int
     ranker      ::Union{AbstractMatrix{T},Nothing} # TODO: change this to a symbol key in the reference matrices?
     wrap        ::Union{Type, Function}
-
-    # one set of maps is enough for the whole family
-    _index_to_coords :: Vector{Vector{Int}}
-    _index_to_values :: Vector{Vector{Float64}}
 end
-function QMSolver(::Type{M}, adims::AD.Dimensions, args...; num_states=nothing, wrap=identity, ranker=nothing, kwargs...) where {T, M<:AbstractMatrix{T}}
-    index_to_coords = AD.index_to_coords(Vector, adims),
-    index_to_values = AD.index_to_values(Vector, adims)
-    
-    mwrs = MatricesWithRules(M, adims, index_to_coords, index_to_values, args...; kwargs...)
+issolver(::Type{<:QMSolver}) = SolverFrameworkTrait()
+
+function QMSolver(
+        ::Type{M}, 
+        adims::AD.Dimensions;
+        options=Dict{Symbol,Any}(), # MatrixSharedData field
+        cache_kwargs=true, # MatrixSharedData field 
+        num_states=nothing, 
+        wrap=identity,
+        ranker=nothing
+    ) where {T, M<:AbstractMatrix{T}}
+
+    shared = MatrixSharedData(adims, options, cache_kwargs)    
+    mwrs = MatricesWithRules(M, shared)
 
     num_states = num_states === nothing ? dim(mwrs) : Int(num_states)
     # mwrs_reference = MatricesWithRules(args...; kwargs...)
 
-    QMSolver(mwrs, 
-             zeros(T, num_states), 
-             zeros(T, num_states, dim(mwrs)), 
-             num_states, 
-             ranker, 
-             wrap)
-end
-
-#
-# Standard interface of parent type
-#
-
-get_array(qms::QMSolver) = qms.wrap(get_array(qms.mwrs))
-
-function generate_builders!(qms::QMSolver)
-    generate_builders!(qms.mwrs)
-    return qms
-end
-
-function add_rule!(qms::QMSolver, args...; kwargs...)
-    add_rule!(qms.mwrs, args...; kwargs...)
-    return qms
-end
-
-function add_matrix!(qms::QMSolver, args...; kwargs...)
-    add_matrix!(qms.mwrs, args...; kwargs...)
-    return qms
-end
-
-function build!(qms::QMSolver, args...; kwargs...)
-    build!(qms.mwrs, args...; kwargs...)
-    return qms
+    QMSolver(
+        shared,
+        mwrs, 
+        zeros(T, num_states), 
+        zeros(T, num_states, dim(mwrs)), 
+        num_states, 
+        ranker, 
+        wrap
+    )
 end
 
 #
@@ -119,7 +104,7 @@ In the future use ArnoldiMethod.jl, but right now this is not a complete replace
 function eigensystem!(qms::QMSolver; names=nothing, which=:SR, kwargs...)
     build!(qms.mwrs; names=names, kwargs...)
 
-    matrix = get_array(qms)
+    matrix = get_matrix(qms)
 
     if issparse(qms)
         qms.eigenvalues, qms.eigenvectors = eigs(matrix; nev=qms.num_states, which=which, maxiter=10000)

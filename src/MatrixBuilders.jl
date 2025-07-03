@@ -15,15 +15,16 @@ module MatrixBuilders
 #
 # where the rule is that for these CamelCase types I am combining the first letter of each word.
 #
-using QGas.NumericalTools.ArrayDimensions: Dimensions, index_to_coords, index_to_values
-using ..Helpers: DimensionWithSpace, base_typeof
+using QGas.NumericalTools.ArrayDimensions: Dimensions
+using ..Helpers: MatrixSharedData
+using ..Helpers: base_typeof, get_index_to_coords, get_index_to_values, get_options, set_options!, get_cache_kwargs, set_cache_kwargs!
+
 using ..Rules
 using ..AbstractMatrixTypes
 
 # To be overloaded for new types
 import ..AbstractMatrixTypes: isleaf
-import ..AbstractMatrixTypes: get_default_kwargs, set_default_kwargs!, get_rules, set_rules!, add_rule!
-import ..AbstractMatrixTypes: get_leafs, add_leaf!
+import ..AbstractMatrixTypes: dim, get_default_kwargs, set_default_kwargs!, get_rules, set_rules!, add_rule!
 import ..AbstractMatrixTypes: build_rules!, error_check, build, build!, generate_builders!, generate_builders
 
 export MatrixWithRules, MatricesWithRules
@@ -45,7 +46,7 @@ This a container type that contains rules used to build matrices.
 
 rules: Each rule is a dictionary, and each rule specifies an individual matrix element.
 
-* `adims`: physical dimensions of the system
+* `shared`: shared properties
 * `rules`: rules to be applied given relative coordinates
 * `builders`: efficiently build matrices
 * `matrix`: Most recent matrix
@@ -55,15 +56,11 @@ rules: Each rule is a dictionary, and each rule specifies an individual matrix e
 Private fields (prefixed `_`) should only be touched by helpers.
 """
 mutable struct MatrixWithRules{T, M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
-    adims::Dimensions # Spatial / internal dimensions of system
+    shared::MatrixSharedData
     rules::Vector{AbstractRule}
     builders::Vector{AbstractRuleBuilder}
     matrix::M
-    cache_kwargs::Bool
-    options::Dict{Symbol, Any}
 
-    _index_to_coords::Vector{Vector{Int}}
-    _index_to_values::Vector{Vector{Float64}}
     _kwargs::Dict{Symbol, Any} # Most recent kwargs
     _default_kwargs::Dict{Symbol, Any} # Default kwargs
     _matrix_cached::Bool # whether the matrix is currently cached
@@ -72,38 +69,21 @@ isleaf(::Type{<:MatrixWithRules}) = LeafTrait()
 
 function MatrixWithRules(
         ::Type{M}, 
-        adims::Dimensions,
-        _index_to_coords,
-        _index_to_values; 
-        cache_kwargs::Bool=true, 
-        options=Dict{Symbol, Any}()
+        shared::MatrixSharedData
     ) where M
 
     MatrixWithRules{eltype(M), M}(
-        adims,
+        shared,
         AbstractRule[],
         AbstractRuleBuilder[],
-        zeros(M, eltype(M), length(adims), length(adims) ), 
-        cache_kwargs, 
-        options,
-        _index_to_coords,
-        _index_to_values,
+        zeros(M, eltype(M), length(shared), length(shared) ), 
         Dict(),
         Dict(),
         false
     )
 end
 
-function MatrixWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
-    
-    # define the mapping from matrix index to (i,j,k, ...) coordinates
-    _index_to_coords = index_to_coords(Vector, adims)
-
-    # define the mapping from linear array indices scaled values
-    _index_to_values = index_to_values(Vector, adims)
-
-    MatrixWithRules(M, adims, _index_to_coords, _index_to_values; kwargs...)
-end
+MatrixWithRules(::Type{M}, adims::Dimensions; options=Dict{Symbol,Any}(), cache_kwargs=true) where M = MatrixWithRules(M,  MatrixSharedData(adims, options, cache_kwargs))
 
 """
     generate_builders(mwr::MatrixWithRules)::Vector{AbstractRuleBuilder}()
@@ -124,7 +104,7 @@ function generate_builders(mwr::MatrixWithRules)
         # get the specialized type in the case of a length 1 vector.
         rules::Vector{T} = [rule for rule in mwr.rules if rule isa T]
 
-        push!(builders, matrix_builder(T, rules, mwr.adims, mwr._index_to_coords))
+        push!(builders, matrix_builder(T, rules, get_dimensions(mwr), get_index_to_coords(mwr) ) )
     end 
 
     return builders
@@ -146,7 +126,7 @@ function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
     kwargs = merge(default_kwargs, kwargs)
 
     # Now check if we can use the cached matrix
-    use_cached = mwr.cache_kwargs && mwr._matrix_cached
+    use_cached = get_cache_kwargs(mwr) && mwr._matrix_cached
 
     if use_cached
         for (k, cached_kwarg) in mwr._kwargs
@@ -169,7 +149,7 @@ function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
 
         for builder in mwr.builders
 
-            mat = builder(mat, mwr._index_to_values; kwargs...)
+            mat = builder(mat, get_index_to_values(mwr); kwargs...)
         end
 
         mwr._kwargs = kwargs
@@ -193,59 +173,22 @@ end
 A collection of MatrixWithRules each labeled by a symbol that share the same coordinate system.
 """
 mutable struct MatricesWithRules{T,M<:AbstractMatrix{T}} <: AbstractMatrixWithRules{T, M}
-    adims      :: Dimensions
+    shared     :: MatrixSharedData
     mwrs       :: Dict{Symbol,MatrixWithRules{T,M}}
     matrix     :: M
-    cache_kwargs::Bool
-    options    :: Dict{Symbol,Any}         # global options (rarely needed)
-
-    # one set of maps is enough for the whole family
-    _index_to_coords :: Vector{Vector{Int}}
-    _index_to_values :: Vector{Vector{Float64}}
 end
 isleaf(::Type{<:MatricesWithRules}) = NodeTrait()
 
-function MatricesWithRules(::Type{M},
-                           adims::Dimensions,
-                           _index_to_coords,
-                           _index_to_values;
-                           cache_kwargs::Bool = true,
-                           options = Dict{Symbol,Any}()) where M
+function MatricesWithRules(::Type{M}, shared::MatrixSharedData) where M
 
     return MatricesWithRules{eltype(M),M}(
-        adims,
+        shared,
         Dict{Symbol,MatrixWithRules{eltype(M),M}}(),
-        zeros(M, eltype(M), length(adims), length(adims) ),
-        cache_kwargs,
-        options,
-        _index_to_coords,
-        _index_to_values
+        zeros(M, eltype(M), length(shared), length(shared) )
         )
 end
 
-function MatricesWithRules(::Type{M}, adims::Dimensions; kwargs...) where M
-    return MatricesWithRules(
-        M,
-        adims,
-        index_to_coords(Vector, adims),
-        index_to_values(Vector, adims);
-        kwargs...
-        )
-end
-
-MatrixWithRules(mwrs::MatricesWithRules{T, M}; kwargs...) where {T, M} = 
-    MatrixWithRules(
-        M, 
-        get_dimensions(mwrs),
-        mwrs._index_to_coords,  
-        mwrs._index_to_values; 
-        cache_kwargs=mwrs.cache_kwargs, 
-        options=mwrs.options, 
-        kwargs...
-    )
-
-# Overload methods
-add_leaf!(::NodeTrait, mwrs::MatricesWithRules, name::Symbol; kwargs...) = mwrs.mwrs[name] = MatrixWithRules(mwrs; kwargs...)
-add_leaf!(mwrs::MatricesWithRules, name::Symbol; kwargs...) = add_leaf!(isleaf(mwrs), mwrs, name; kwargs...)
+MatricesWithRules(::Type{M}, adims::Dimensions; options=Dict{Symbol,Any}(), cache_kwargs=true) where M = MatricesWithRules(M, MatrixSharedData(adims, options, cache_kwargs))
+MatrixWithRules(mwrs::MatricesWithRules{T, M}) where {T, M} = MatrixWithRules(M, mwrs.shared)
 
 end # MatrixBuilders
