@@ -84,6 +84,11 @@ isdone(mwr::AbstractMatrixWithRules, args...) = Base.isdone(get_matrix(mwr), arg
 
 issparse(mwr::AbstractMatrixWithRules) = issparse(get_matrix(mwr))
 
+"""
+    dim(mwr::AbstractMatrixWithRules)
+
+returns the vector space dimension
+"""
 dim(mwr::AbstractMatrixWithRules) = length(get_dimensions(mwr))
 
 #
@@ -164,7 +169,6 @@ end
 add_leaf!(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = throw(ArgumentError("`add_leaf!` is not defined for $(typeof(mwr))"))
 add_leaf!(mwr::AbstractMatrixWithRules, name::Symbol, args...; kwargs...) = add_leaf!(isleaf(mwr), mwr, name, args...; kwargs...)
 
-
 get_default_kwargs(::NodeTrait, mwr::AbstractMatrixWithRules, name::Symbol) = get_default_kwargs(get_leaf(mwr, name))
 get_default_kwargs(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules, name::Symbol) = throw(ArgumentError("`get_default_kwargs` accepts no `name` field for $(typeof(mwr))"))
 get_default_kwargs(mwr::AbstractMatrixWithRules, name::Symbol) = get_default_kwargs(isleaf(mwr), mwr, name)
@@ -172,7 +176,11 @@ get_default_kwargs(mwr::AbstractMatrixWithRules, name::Symbol) = get_default_kwa
 set_default_kwargs!(::NodeTrait, mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = set_default_kwargs!(get_leaf(mwr, name), kwargs)
 set_default_kwargs!(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = throw(ArgumentError("`set_default_kwargs!` accepts no `name` field for $(typeof(mwr))"))
 set_default_kwargs!(mwr::AbstractMatrixWithRules, name::Symbol, kwargs) = set_default_kwargs!(isleaf(mwr), mwr, name, kwargs)
-set_default_kwargs!(mwr::AbstractMatrixWithRules, name::Symbol; kwargs...) = set_default_kwargs!(mwr, name, Dict(kwargs))
+set_default_kwargs!(mwr::AbstractMatrixWithRules, name::Symbol; kwargs...) = (set_default_kwargs!(mwr, name, Dict(kwargs)); mwr)
+
+get_rules(::NodeTrait, mwr::AbstractMatrixWithRules, name::Symbol) = get_rules(get_leaf(mwr, name))
+get_rules(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules, name::Symbol) = throw(ArgumentError("`get_rules` accepts no `name` field for $(typeof(mwr))"))
+get_rules(mwr::AbstractMatrixWithRules, name::Symbol) = get_rules(isleaf(mwr), mwr, name) 
 
 #
 # defined for links
@@ -190,8 +198,9 @@ add_leaf!(::LinkTrait, mwr::AbstractMatrixWithRules, args...; kwargs...) = add_l
 
 get_default_kwargs(::LinkTrait, mwr::AbstractMatrixWithRules, args...) = get_default_kwargs(get_leaf(mwr), args...)
 
-set_default_kwargs(::LinkTrait, mwr::AbstractMatrixWithRules, args...) = set_default_kwargs(get_leaf(mwr), args...)
+set_default_kwargs!(::LinkTrait, mwr::AbstractMatrixWithRules, args...) = (set_default_kwargs!(get_leaf(mwr), args...); mwr)
 
+get_rules(::LinkTrait, mwr::AbstractMatrixWithRules, args...) = get_rules(get_leaf(mwr), args...)
 
 
 """
@@ -243,6 +252,7 @@ check for errors
 error_check(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`isleaf` not overridden for $(typeof(mwr))"))
 error_check(::LeafTrait, mwr::AbstractMatrixWithRules) = nothing
 error_check(::NodeTrait, mwr::AbstractMatrixWithRules) = foreach(error_check, values(get_leafs(mwr)))
+error_check(::LinkTrait, mwr::AbstractMatrixWithRules) = error_check(get_leaf(mwr))
 
 error_check(mwr::AbstractMatrixWithRules) = error_check(isleaf(mwr), mwr) 
 
@@ -261,7 +271,7 @@ function generate_builders!(::NodeTrait, mwr::AbstractMatrixWithRules)
     return mwr
 end
 
-generate_builders!(::LinkTrait, mwr::AbstractMatrixWithRules) = generate_builders!(get_leaf(mwr))
+generate_builders!(::LinkTrait, mwr::AbstractMatrixWithRules) = (generate_builders!(get_leaf(mwr)); mwr)
 
 generate_builders!(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`generate_builders!`: not supported for $(typeof(mwr))"))
 
@@ -299,9 +309,10 @@ function build(::NodeTrait, mwr::AbstractMatrixWithRules; names=nothing, kwargs.
     set_matrix!(mwr, matrix)
 end
 
-build!(::LinkTrait, mwr::AbstractMatrixWithRules) = build!(get_leaf(mwr))
 
-build!(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules) = throw(ArgumentError("`build!`: not supported for $(typeof(mwr))"))
+build(::LinkTrait, mwr::AbstractMatrixWithRules) = build(get_leaf(mwr))
+
+build(::LeafUndefinedTrait, mwr::AbstractMatrixWithRules, args...) = throw(ArgumentError("`build!`: not supported for $(typeof(mwr))"))
 
 build(mwr::AbstractMatrixWithRules, args...; kwargs...) = build(isleaf(mwr), mwr, args...; kwargs...)
 

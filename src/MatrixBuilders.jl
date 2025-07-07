@@ -121,6 +121,8 @@ end
 """
 function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
 
+
+
     # First combine provided kwargs with the defaults as backups
     default_kwargs = get_default_kwargs(mwr)
     kwargs = merge(default_kwargs, kwargs)
@@ -143,6 +145,7 @@ function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
             end
         end
     end
+
 
     if !use_cached
         mat = zeros(M, T, dim(mwr), dim(mwr) ) 

@@ -30,4 +30,7 @@ module QMSim
     include("MatrixSolvers.jl"); using .MatrixSolvers
     export QMSolver, eigensystem!, rank_ordering!
 
+    # Note that we will _not_ export the contents of solvers by default
+    include("solvers/Solvers.jl")
+
 end

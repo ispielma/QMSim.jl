@@ -7,7 +7,7 @@ module MatrixSolvers
 
 # External imports
 using LinearAlgebra, SparseArrays, Arpack
-import QGas.NumericalTools.ArrayDimensions as AD
+using QGas.NumericalTools.ArrayDimensions: Dimensions
 
 # Internal imports
 using ..Helpers
@@ -20,6 +20,7 @@ export QMSolver, eigensystem!, rank_ordering!
 # To add methods
 import ..AbstractMatrixTypes: isleaf
 import ..AbstractSolverTypes: issolver
+import ..get_matrix
 
 """
     QMSolver{T, M<:AbstractMatrix{T}}
@@ -34,7 +35,7 @@ Subtype of AbstractMatrixWithRules that is specifically for solving quantum mech
 """
 mutable struct QMSolver{T, M<:AbstractMatrix{T}} <: AbstractMatrixSolver{T,M}
     shared      :: MatrixSharedData
-    mwrs         :: MatricesWithRules{T,M} # TODO: change this to be any AbstractMatrixWithRules?
+    mwrs        :: MatricesWithRules{T,M} # TODO: change this to be any AbstractMatrixWithRules?
     eigenvalues ::Vector{T}
     eigenvectors::Matrix{T}
     num_states  ::Int
@@ -44,16 +45,13 @@ end
 issolver(::Type{<:QMSolver}) = SolverFrameworkTrait()
 
 function QMSolver(
-        ::Type{M}, 
-        adims::AD.Dimensions;
-        options=Dict{Symbol,Any}(), # MatrixSharedData field
-        cache_kwargs=true, # MatrixSharedData field 
+        ::Type{M},
+        shared::MatrixSharedData;
         num_states=nothing, 
         wrap=identity,
         ranker=nothing
     ) where {T, M<:AbstractMatrix{T}}
-
-    shared = MatrixSharedData(adims, options, cache_kwargs)    
+        
     mwrs = MatricesWithRules(M, shared)
 
     num_states = num_states === nothing ? dim(mwrs) : Int(num_states)
@@ -69,6 +67,16 @@ function QMSolver(
         wrap
     )
 end
+
+QMSolver(
+    ::Type{M}, 
+    adims::Dimensions;
+    options=Dict{Symbol,Any}(), # MatrixSharedData field
+    cache_kwargs=true, # MatrixSharedData field 
+    kwargs...
+    ) where M =  QMSolver(M, MatrixSharedData(adims, options, cache_kwargs); kwargs...)
+
+get_matrix(solver::QMSolver) = solver.wrap(get_matrix(solver.mwrs))
 
 #
 # New methods
