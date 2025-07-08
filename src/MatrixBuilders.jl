@@ -130,14 +130,12 @@ function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
     # Now check if we can use the cached matrix
     use_cached = get_cache_kwargs(mwr) && mwr._matrix_cached
 
-    if use_cached
+    if keys(mwr._kwargs) != keys(kwargs)
+        use_cached = false
+    elseif use_cached
         for (k, cached_kwarg) in mwr._kwargs
 
-            if !(k in keys(default_kwargs))
-                throw(ArgumentError("Default does not exist for key $(k)."))
-            end
-
-            kwarg = get(kwargs, k, default_kwargs[k])
+            kwarg = kwargs[k]
                    
             if kwarg != cached_kwarg
                 mwr._kwargs[k] = copy(kwarg)
