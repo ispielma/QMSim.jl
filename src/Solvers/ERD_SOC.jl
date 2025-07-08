@@ -11,7 +11,7 @@ using QGas.NumericalTools.ArrayDimensions: Dimensions
 using ...QMSim
 
 # Required overrides
-import ...QMSim: set_defaults!, error_check, build_rules!
+import ...QMSim: error_check, build_rules!
 
 export ERD_SOC_Solver
 
@@ -54,8 +54,6 @@ function ERD_SOC_Solver(adims::Dimensions)
 
     solver = ERD_SOC_Solver(shared, mwrs)
 
-    set_defaults!(solver)
-
     # check for errors
     error_check(solver)
 
@@ -64,19 +62,6 @@ function ERD_SOC_Solver(adims::Dimensions)
 
     # Generate the efficient builders
     generate_builders!(solver)
-end
-
-function set_defaults!(solver::ERD_SOC_Solver;
-    q::Float64=zero(Float64),
-    Ω::ComplexF64=zero(ComplexF64),
-    ϵ::Float64=zero(Float64),
-    Δ::Float64=zero(Float64))
-
-    # Defaults for kinetic (diagonal matrix)
-    set_default_kwargs!(solver, :kinetic; q=q, ϵ=ϵ, Δ=Δ)
-
-    # Defaults for potential (off-diagonal matrix)
-    set_default_kwargs!(solver, :potential; Ω=Ω)
 end
 
 function error_check(solver::ERD_SOC_Solver)
@@ -99,8 +84,9 @@ function build_rules!(solver::ERD_SOC_Solver)
 
         mF = x0[1]
 
-        return (q - mF).^2 - ϵ * mF^2 + Δ * mF
+        return (q - 2*mF).^2 - ϵ * mF^2 + Δ * mF
     end
+    set_default_kwargs!(solver, :kinetic; q=0.0, ϵ=0.0, Δ=0.0)
     add_rule!(solver, :kinetic, RelativeRule, kinetic, [0,] )
 
     # Total angular momentum quantum number
@@ -121,6 +107,8 @@ function build_rules!(solver::ERD_SOC_Solver)
     end
     add_rule!(solver, :potential, RelativeRule, potential, [+1,] )
     add_rule!(solver, :potential, RelativeRule, potential, [-1,] )
+    set_default_kwargs!(solver, :potential; Ω=0.0)
+
 end
 
 end # ERD_SOC

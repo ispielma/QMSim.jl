@@ -28,7 +28,7 @@ module QMSim
     export AbstractMatrixSolver, issolver
 
     include("MatrixSolvers.jl"); using .MatrixSolvers
-    export QMSolver, eigensystem!, rank_ordering!
+    export QMSolver, eigenvalues, eigenvalues!, eigensystem, eigensystem!, rank_ordering!
 
     # Note that we will _not_ export the contents of solvers by default
     include("solvers/Solvers.jl")

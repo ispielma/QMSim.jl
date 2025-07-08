@@ -15,7 +15,7 @@ using ..AbstractSolverTypes: AbstractMatrixSolver, IsSolverTrait, SolverTrait, S
 using ..AbstractMatrixTypes
 using ..MatrixBuilders: MatricesWithRules
 
-export QMSolver, eigensystem!, rank_ordering!
+export QMSolver, eigenvalues, eigenvalues!, eigensystem, eigensystem!, rank_ordering!
 
 # To add methods
 import ..AbstractMatrixTypes: isleaf
@@ -107,28 +107,54 @@ function rank_ordering!(qms::QMSolver)
 end
 
 """
-In the future use ArnoldiMethod.jl, but right now this is not a complete replacement of eigs
+In the future use ArnoldiMethod.jl, but right now this is not a complete replacement of eigs.
+
+later when the eigen interface is unified between dense and sparse I will overload this rather than making this eigensystem
 """
-function eigensystem!(qms::QMSolver; names=nothing, which=:SR, kwargs...)
+eigensystem!(qms::QMSolver; kwargs...) = ((qms.eigenvalues, qms.eigenvectors) = eigensystem(qms; kwargs...); qms)
+
+function eigensystem(qms::QMSolver; names=nothing, which=:SR, kwargs...)
     build!(qms.mwrs; names=names, kwargs...)
 
     matrix = get_matrix(qms)
 
     if issparse(qms)
-        qms.eigenvalues, qms.eigenvectors = eigs(matrix; nev=qms.num_states, which=which, maxiter=10000)
+        eigenvalues, eigenvectors = eigs(matrix; nev=qms.num_states, which=which, maxiter=10000)
     else
         factors = eigen(matrix)
-        qms.eigenvalues = factors.values
-        qms.eigenvectors = factors.vectors
+        eigenvalues = factors.values
+        eigenvectors = factors.vectors
     end
 
     if issymmetric(qms) || ishermitian(qms)
-        qms.eigenvalues = real(qms.eigenvalues)
+        eigenvalues = real(eigenvalues)
     end
 
     rank_ordering!(qms)
 
-    return qms
+    return eigenvalues, eigenvectors
+end
+
+eigenvalues!(qms::QMSolver; kwargs...) = (qms.eigenvalues = eigenvalues(qms; kwargs...); qms)
+
+function eigenvalues(qms::QMSolver; names=nothing, which=:SR, kwargs...)
+    build!(qms.mwrs; names=names, kwargs...)
+
+    matrix = get_matrix(qms)
+
+    if issparse(qms)
+        eigenvalues, _ = eigs(matrix; nev=qms.num_states, which=which, maxiter=10000)
+    else
+        eigenvalues = eigvals(matrix)
+    end
+
+    if issymmetric(qms) || ishermitian(qms)
+        eigenvalues = real(eigenvalues)
+    end
+
+    rank_ordering!(qms)
+
+    return eigenvalues
 end
 
 end # MatrixSolvers

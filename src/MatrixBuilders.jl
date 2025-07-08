@@ -117,15 +117,15 @@ end
 """
     build(mwr::MatrixWithRules; kwargs...)
 
-* `kwargs`: kwargs to be passed to rules 
+* `kwargs`: kwargs to be passed to rules.  
+
+We will only accept kwargs that are also in get_default_kwargs(mwr).
 """
 function build(mwr::MatrixWithRules{T, M}; kwargs...) where {T, M}
 
-
-
-    # First combine provided kwargs with the defaults as backups
+    # First get default kwargs and replace with any elements provided by kwargs
     default_kwargs = get_default_kwargs(mwr)
-    kwargs = merge(default_kwargs, kwargs)
+    kwargs = Dict(k => get(kwargs, k, v) for (k, v) in default_kwargs)
 
     # Now check if we can use the cached matrix
     use_cached = get_cache_kwargs(mwr) && mwr._matrix_cached

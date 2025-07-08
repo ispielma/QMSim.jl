@@ -12,8 +12,13 @@ $$
 \hat V = \frac{V_0}{4} \sum_k \ket{k + 2 k_2}\bra{k} + \mathrm{H.c}
 $$
 
-in momentum space.
-This expresses a rule that a matrix element of $V_0/4$ exists for momentum states differing by $2 k_r$.  Atomic physics coupling graphs are another example.
+in momentum space.  This expresses a rule that a matrix element of $V_0/4$ exists for momentum states differing by $2 k_r$.  Atomic physics coupling graphs are another example.
+
+See `examples/examples.ipynb` for example behavior.
+
+## Status
+
+The minimal functionality is now in place to setup simple models, IBS will be implementing new models and refining the code base as is required for Spielman Lab research. 
 
 ## Type hierarchy
 
@@ -39,3 +44,5 @@ AbstractMatrix
             ... specific solvers [LinkTrait, SolverTrait]
 ```
 Notice that I have also defined traits `[UndefinedTrait, LeafTrait, NodeTrait, LinkTrait]` to specialize dispatch on other qualities of `AbstractMatrixWithRules`, and `[SolverUndefinedTrait, SolverFrameworkTrait, SolverTrait]` to separate out solver frameworks (like `QMSolver`) from actual solvers.
+
+
